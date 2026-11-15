@@ -533,17 +533,16 @@ public class WatchView extends FrameLayout {
                 return true;
             case KeyEvent.KEYCODE_DPAD_UP:
                 if (row == 0) {
+                    // Coming back down from the tabs starts at the first card, not where the row was left.
+                    cols[0] = 0;
+                    applyFocus(true);
                     if (listener != null) listener.onExitUp();
                     return true;
                 }
-                row--;
-                applyFocus(true);
+                moveRow(row - 1);
                 return true;
             case KeyEvent.KEYCODE_DPAD_DOWN:
-                if (row < rows.size() - 1) {
-                    row++;
-                    applyFocus(true);
-                }
+                if (row < rows.size() - 1) moveRow(row + 1);
                 return true;
             case KeyEvent.KEYCODE_DPAD_CENTER:
             case KeyEvent.KEYCODE_ENTER:
@@ -557,6 +556,15 @@ public class WatchView extends FrameLayout {
             default:
                 return super.onKeyDown(keyCode, event);
         }
+    }
+
+    /** Same kind of row: the column carries over. Another kind (chips, posters, wide cards): its first card. */
+    private void moveRow(int to) {
+        int from = row;
+        row = to;
+        cols[to] = rows.get(to).items.get(0).type == rows.get(from).items.get(0).type
+                ? Math.min(cols[from], rows.get(to).items.size() - 1) : 0;
+        applyFocus(true);
     }
 
     @Override
