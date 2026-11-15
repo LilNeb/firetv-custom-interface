@@ -38,6 +38,9 @@ public class WatchView extends FrameLayout {
         /** Up from the first row: the activity moves focus to the top bar. */
         void onExitUp();
 
+        /** The page's tabs changed (names, or the current one): the activity shows them in the top bar. */
+        void onTabs(List<String> names, int current);
+
         /** The focused card's backdrop, or null. Debounced. */
         void onBackdrop(String url, boolean animate);
     }
@@ -71,7 +74,6 @@ public class WatchView extends FrameLayout {
     private final List<WatchItem.Row> allRows = new ArrayList<>();
     private final List<String> tabNames = new ArrayList<>();
     private int tab;
-    private final LinearLayout tabsView;
     /** Each tab's row views, kept while the rows don't change. */
     private final java.util.Map<String, List<RowViews>> built = new java.util.HashMap<>();
     private final List<RowViews> rowViews = new ArrayList<>();
@@ -169,14 +171,6 @@ public class WatchView extends FrameLayout {
         rlp.topMargin = px(ROWS_TOP);
         addView(rowsView, rlp);
 
-        // Tabs of the page, switched with the remote's rewind / fast-forward buttons.
-        tabsView = new LinearLayout(context);
-        tabsView.setGravity(Gravity.CENTER_VERTICAL);
-        LayoutParams tlp = new LayoutParams(-2, -2, Gravity.TOP | Gravity.END);
-        tlp.topMargin = px(4);
-        tlp.rightMargin = px(28);
-        addView(tabsView, tlp);
-
     }
 
     void setListener(Listener l) {
@@ -239,16 +233,16 @@ public class WatchView extends FrameLayout {
     }
 
     private void updateTabs() {
-        tabsView.removeAllViews();
-        if (tabNames.size() < 2) return;
-        for (int i = 0; i < tabNames.size(); i++) {
-            boolean on = i == tab;
-            TextView t = text(13, 600, on ? Color.WHITE : 0x80FFFFFF);
-            t.setText(tabNames.get(i));
-            t.setPadding(px(12), px(5), px(12), px(5));
-            if (on) t.setBackground(rounded(0x33FFFFFF, px(14)));
-            tabsView.addView(t);
-        }
+        if (listener != null) listener.onTabs(tabNames, tab);
+    }
+
+    int currentTab() {
+        return tab;
+    }
+
+    /** A tab of the top bar got the focus: show its rows (tvOS: focusing a tab shows its page). */
+    void selectTab(int i) {
+        if (i != tab) switchTab(i - tab);
     }
 
     // ---- building ----------------------------------------------------------------------------------

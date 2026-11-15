@@ -101,6 +101,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
     private WatchView watch;
     private View pagesView, appsPage, tabs, tabIndicator;
     private TextView tabWatch, tabApps;
+    /** The Watch page's tabs in the top bar (Stremio, then each YouTube account); the first is tabWatch. */
+    private final List<TextView> watchTabs = new ArrayList<>();
     private String heroUrl;
     private Bitmap heroBitmap;
     private ContentRepository repo;
@@ -280,7 +282,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
             restoring = false;
             View focused = getCurrentFocus();
             if (page == PAGE_WATCH) {
-                if (focused == null || focused == grid || focused == tabWatch || focused == tabApps
+                if (focused == null || focused == grid || watchTabs.contains(focused) || focused == tabApps
                         || grid.findContainingViewHolder(focused) != null) {
                     watch.requestFocus();
                 }
@@ -308,14 +310,14 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
         }
         // Back climbs one level at a time, like tvOS: content → start of the page → its tab → the Watch tab.
         View f = getCurrentFocus();
-        if (f == tabWatch) return;
+        if (watchTabs.contains(f)) return;
         if (f == tabApps) {
-            tabWatch.requestFocus();
+            watchTab().requestFocus();
             return;
         }
         if (page == PAGE_WATCH) {
             if (watch.hasFocus() && watch.resetToStart()) return;
-            tabWatch.requestFocus();
+            watchTab().requestFocus();
             return;
         }
         int dock = adapter.dockCount();
@@ -763,9 +765,11 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
         marker.setCornerRadius(21 * density);
         tabIndicator.setBackground(marker);
 
-        TextView[] tabViews = {tabWatch, tabApps};
+        watchTabs.add(tabWatch);
+        setUpWatchTab(tabWatch, 0);
+        TextView[] tabViews = {tabApps};
         for (int i = 0; i < tabViews.length; i++) {
-            final int p = i;
+            final int p = PAGE_APPS;
             TextView t = tabViews[i];
             // tvOS: focusing a tab shows its page; OK or Down goes into it.
             t.setOnFocusChangeListener((v, has) -> {
@@ -809,7 +813,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
         grid.setDescendantFocusability(p == PAGE_APPS
                 ? ViewGroup.FOCUS_AFTER_DESCENDANTS : ViewGroup.FOCUS_BLOCK_DESCENDANTS);
         int down = p == PAGE_WATCH ? R.id.watch : R.id.grid;
-        tabWatch.setNextFocusDownId(down);
+        for (TextView t : watchTabs) t.setNextFocusDownId(down);
         tabApps.setNextFocusDownId(down);
         for (int id : new int[]{R.id.btnInputs, R.id.btnWifi, R.id.btnSettings}) findViewById(id).setNextFocusDownId(down);
         if (p == PAGE_WATCH) {
@@ -832,7 +836,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
     }
 
     private void placeIndicator(boolean animate) {
-        TextView t = page == PAGE_WATCH ? tabWatch : tabApps;
+        TextView t = page == PAGE_WATCH ? watchTab() : tabApps;
         if (t.getWidth() == 0) return;
         ViewGroup.LayoutParams lp = tabIndicator.getLayoutParams();
         if (lp.width != t.getWidth()) {
@@ -844,10 +848,69 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
         else Motion.set(tabIndicator, DynamicAnimation.TRANSLATION_X, x);
     }
 
+    /** The top-bar tab of the Watch page's current tab. */
+    private TextView watchTab() {
+        return watchTabs.get(Math.min(watch.currentTab(), watchTabs.size() - 1));
+    }
+
+    private void setUpWatchTab(TextView t, int index) {
+        // tvOS: focusing a tab shows its page; OK or Down goes into it.
+        t.setOnFocusChangeListener((v, has) -> {
+            Motion.scale(v, has ? 1.06f : 1f, Motion.SNAPPY);
+            if (has && !restoring) {
+                watch.selectTab(index);
+                if (page != PAGE_WATCH) setPage(PAGE_WATCH, true);
+            }
+            updateTabText();
+        });
+        t.setOnClickListener(v -> enterPage(PAGE_WATCH));
+        t.setOnKeyListener((v, keyCode, event) -> {
+            if (event.getAction() != KeyEvent.ACTION_DOWN) return false;
+            if (keyCode == KeyEvent.KEYCODE_DPAD_UP) return true;
+            if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+                enterPage(PAGE_WATCH);
+                return true;
+            }
+            return keyCode == KeyEvent.KEYCODE_DPAD_LEFT && index == 0;
+        });
+    }
+
+    @Override
+    public void onTabs(List<String> names, int current) {
+        // One tab per source when there are several; a single source keeps "Watch".
+        if (names.size() < 2) names = java.util.Collections.singletonList(getString(R.string.tab_watch));
+        ViewGroup bar = (ViewGroup) tabWatch.getParent();
+        while (watchTabs.size() > names.size()) bar.removeView(watchTabs.remove(watchTabs.size() - 1));
+        while (watchTabs.size() < names.size()) {
+            TextView t = new TextView(this, null, 0, R.style.PageTab);
+            t.setTypeface(tabWatch.getTypeface());
+            t.setLayoutParams(new LinearLayout.LayoutParams((LinearLayout.LayoutParams) tabWatch.getLayoutParams()));
+            t.setFocusable(true);
+            t.setNextFocusDownId(tabWatch.getNextFocusDownId());
+            setUpWatchTab(t, watchTabs.size());
+            bar.addView(t, watchTabs.size());
+            watchTabs.add(t);
+        }
+        for (int i = 0; i < names.size(); i++) watchTabs.get(i).setText(names.get(i));
+        // Rewind / fast-forward while on the bar: the focus follows the tab.
+        boolean onBar = false;
+        for (TextView t : watchTabs) onBar |= t.hasFocus();
+        if (onBar && !watchTab().hasFocus()) {
+            restoring = true;
+            watchTab().requestFocus();
+            restoring = false;
+        }
+        tabs.post(() -> placeIndicator(page == PAGE_WATCH));
+        updateTabText();
+    }
+
     private void updateTabText() {
-        boolean focused = tabWatch.hasFocus() || tabApps.hasFocus();
+        boolean focused = tabApps.hasFocus();
+        for (TextView t : watchTabs) focused |= t.hasFocus();
         ((GradientDrawable) tabIndicator.getBackground()).setColor(focused ? 0xF5FFFFFF : 0x40FFFFFF);
-        tabWatch.setTextColor(tabColor(tabWatch, PAGE_WATCH));
+        for (TextView t : watchTabs) {
+            t.setTextColor(t.hasFocus() ? 0xFF111111 : page == PAGE_WATCH && t == watchTab() ? Color.WHITE : 0xB3FFFFFF);
+        }
         tabApps.setTextColor(tabColor(tabApps, PAGE_APPS));
     }
 
@@ -944,7 +1007,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
 
     @Override
     public void onExitUp() {
-        tabWatch.requestFocus();
+        watchTab().requestFocus();
     }
 
     @Override
