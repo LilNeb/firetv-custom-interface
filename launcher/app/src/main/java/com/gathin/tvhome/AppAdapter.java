@@ -114,6 +114,14 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
         return new android.graphics.drawable.BitmapDrawable(ctx.getResources(), b);
     }
 
+    /** True when the tile is the first (or last, if right) of its row: the dock, or a grid row of maxDock columns. */
+    boolean atRowEnd(int pos, boolean right) {
+        int dock = dockCount;
+        if (pos < dock) return right ? pos == dock - 1 : pos == 0;
+        int col = (pos - dock) % maxDock;
+        return right ? col == maxDock - 1 || pos == items.size() - 1 : col == 0;
+    }
+
     void reload() {
         PackageManager pm = ctx.getPackageManager();
         Intent probe = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER);
@@ -294,6 +302,10 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
                 if (keyCode == KeyEvent.KEYCODE_MENU) {
                     listener.onTileMenu(pos, view);
                     return true;
+                }
+                if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                    // Stop at the ends of a row (tvOS): Android would otherwise jump to the top bar or another row.
+                    return owner.atRowEnd(pos, keyCode == KeyEvent.KEYCODE_DPAD_RIGHT);
                 }
                 if (keyCode != KeyEvent.KEYCODE_DPAD_UP && keyCode != KeyEvent.KEYCODE_DPAD_DOWN) return false;
                 return listener.onTileVerticalKey(pos, keyCode);
