@@ -57,7 +57,7 @@
     <string name="app_missing">%1$s is not installed</string>
     <string name="link_title">Connect Stremio</string>
     <string name="link_wait">Getting a code…</string>
-    <string name="link_hint">On your phone, open %1$s and confirm.</string>
+    <string name="link_hint">Scan the QR code with your phone, or open %1$s and confirm.</string>
     <string name="link_done">Stremio connected</string>
     <string name="link_failed">The code expired. Close and try again.</string>
     <string name="link_cancel">Cancel</string>

@@ -18,8 +18,6 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import androidx.dynamicanimation.animation.DynamicAnimation;
-import androidx.dynamicanimation.animation.FloatValueHolder;
-import androidx.dynamicanimation.animation.SpringAnimation;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -29,7 +27,7 @@ import java.util.List;
  * single view and moves its own highlight with the D-pad, so navigation is deterministic: Left/Right within a
  * row, Up/Down between rows (each row remembers its column), Up from the first row leaves to the top bar.
  *
- * Motion follows Motion.java: the focused card grows with the snappy spring, a Liquid Glass lens slides onto it
+ * Motion follows Motion.java: the focused card grows with the snappy spring, and lifts on a soft shadow (tvOS)
  * with the bouncy one (as on iOS 26), and rows and the hero move with the smooth one. Nothing loops.
  */
 public class WatchView extends FrameLayout {
@@ -52,7 +50,8 @@ public class WatchView extends FrameLayout {
     private static final int ROW_HEADER = 30;
     private static final int ROW_SPACING = 20;
     private static final int ROWS_TOP = 172;
-    private static final int FOCUSED_ROW_TOP = 14;
+    /** Where a focused row below the first settles: under the hero, with room for the focus scale. */
+    private static final int FOCUSED_ROW_TOP = 196;
     private static final float FOCUS_SCALE = 1.08f;
     private static final float CHIP_FOCUS_SCALE = 1.05f;
     private static final float PRESS_SCALE = 0.97f;
@@ -66,7 +65,6 @@ public class WatchView extends FrameLayout {
     private final View heroDot;
     private final TextView heroKicker, heroTitle, heroMeta, heroDesc;
     private final LinearLayout rowsView;
-    private final Lens lens;
 
     private final List<WatchItem.Row> rows = new ArrayList<>();
     private final List<RowViews> rowViews = new ArrayList<>();
@@ -87,6 +85,10 @@ public class WatchView extends FrameLayout {
     private static final class CardViews {
         FrameLayout card;
         WatchItem item;
+        /** Chips only: the white fill and the views that turn dark on it (tvOS focused button). */
+        View fill;
+        TextView kicker, title;
+        ImageView icon;
     }
 
     public WatchView(Context context, AttributeSet attrs) {
@@ -147,8 +149,6 @@ public class WatchView extends FrameLayout {
         rlp.topMargin = px(ROWS_TOP);
         addView(rowsView, rlp);
 
-        lens = new Lens(context);
-        addView(lens, new LayoutParams(-1, -1));
     }
 
     void setListener(Listener l) {
@@ -235,8 +235,13 @@ public class WatchView extends FrameLayout {
         FrameLayout card = new FrameLayout(getContext());
         cv.card = card;
         if (item.type == WatchItem.CHIP) {
-            // Liquid Glass button: clear body, specular top, light rim.
-            card.setBackground(new LiquidGlass.GlassDrawable(dp, px(CHIP_H / 2f), 1f));
+            // tvOS button: translucent at rest, solid white when focused.
+            card.setBackground(rounded(0x33FFFFFF, px(CHIP_H / 2f)));
+            View fill = new View(getContext());
+            fill.setBackground(rounded(Color.WHITE, px(CHIP_H / 2f)));
+            fill.setAlpha(0f);
+            card.addView(fill, new LayoutParams(-1, -1));
+            cv.fill = fill;
             LinearLayout content = new LinearLayout(getContext());
             content.setGravity(Gravity.CENTER_VERTICAL);
             content.setPadding(px(16), 0, px(14), 0);
@@ -260,6 +265,9 @@ public class WatchView extends FrameLayout {
             tl.leftMargin = px(12);
             content.addView(texts, tl);
             card.addView(content, new LayoutParams(-1, -1));
+            cv.icon = icon;
+            cv.kicker = k;
+            cv.title = t;
         } else {
             GradientDrawable bg = new GradientDrawable();
             bg.setCornerRadius(px(10));
@@ -337,57 +345,40 @@ public class WatchView extends FrameLayout {
                 boolean on = focused && r == row && c == cols[r];
                 float s = on ? (cv.item.type == WatchItem.CHIP ? CHIP_FOCUS_SCALE : FOCUS_SCALE) : 1f;
                 if (on && pressed) s *= PRESS_SCALE;
+                // tvOS: the focused card lifts towards you (scale and a deep soft shadow); nothing is drawn on it.
+                float z = on ? (cv.item.type == WatchItem.CHIP ? 8 : 20) * dp : 0f;
                 if (animate) {
                     Motion.scale(cv.card, s, Motion.SNAPPY);
-                    Motion.to(cv.card, DynamicAnimation.TRANSLATION_Z, on ? 10 * dp : 0f, Motion.SNAPPY);
+                    Motion.to(cv.card, DynamicAnimation.TRANSLATION_Z, z, Motion.SNAPPY);
                 } else {
                     Motion.set(cv.card, DynamicAnimation.SCALE_X, s);
                     Motion.set(cv.card, DynamicAnimation.SCALE_Y, s);
-                    Motion.set(cv.card, DynamicAnimation.TRANSLATION_Z, on ? 10 * dp : 0f);
+                    Motion.set(cv.card, DynamicAnimation.TRANSLATION_Z, z);
+                }
+                if (cv.fill != null) {
+                    // The fill follows the spring; the text flips colour at once so it never reads grey on grey.
+                    if (animate) Motion.to(cv.fill, DynamicAnimation.ALPHA, on ? 1f : 0f, Motion.SNAPPY);
+                    else Motion.set(cv.fill, DynamicAnimation.ALPHA, on ? 1f : 0f);
+                    int fg = on ? 0xFF111111 : Color.WHITE;
+                    cv.title.setTextColor(fg);
+                    cv.kicker.setTextColor(on ? 0x99111111 : 0xA6FFFFFF);
+                    cv.icon.setColorFilter(fg);
                 }
             }
             scrollRow(rv, cols[r], animate);
         }
 
-        // Rows: the first two sit under the hero; deeper rows slide up and the hero steps aside.
-        boolean heroVisible = row <= 1;
-        float ty = heroVisible ? 0f : (FOCUSED_ROW_TOP - ROWS_TOP - rowViews.get(row).top) * dp;
+        // Rows: the focused row slides up under the hero, which always describes the focused card; rows above fade.
+        float ty = row == 0 ? 0f : (FOCUSED_ROW_TOP - ROWS_TOP - rowViews.get(row).top) * dp;
         if (animate) Motion.to(rowsView, DynamicAnimation.TRANSLATION_Y, ty, Motion.SMOOTH);
         else Motion.set(rowsView, DynamicAnimation.TRANSLATION_Y, ty);
         for (int r = 0; r < rowViews.size(); r++) {
-            float a = !heroVisible && r < row ? 0f : 1f;
+            float a = r < row ? 0f : 1f;
             if (animate) Motion.to(rowViews.get(r).root, DynamicAnimation.ALPHA, a, Motion.SMOOTH);
             else Motion.set(rowViews.get(r).root, DynamicAnimation.ALPHA, a);
         }
-        if (animate) {
-            Motion.to(hero, DynamicAnimation.ALPHA, heroVisible ? 1f : 0f, Motion.SMOOTH);
-            Motion.to(hero, DynamicAnimation.TRANSLATION_Y, heroVisible ? 0f : -20 * dp, Motion.SMOOTH);
-        } else {
-            Motion.set(hero, DynamicAnimation.ALPHA, heroVisible ? 1f : 0f);
-            Motion.set(hero, DynamicAnimation.TRANSLATION_Y, heroVisible ? 0f : -20 * dp);
-        }
-        moveLens(focused, ty, animate);
         updateHero(animate);
         lastRow = row;
-    }
-
-    /** Puts the glass lens where the focused card will settle, so it lands with the card. */
-    private void moveLens(boolean focused, float rowsTy, boolean animate) {
-        if (!focused) {
-            lens.hide(animate);
-            return;
-        }
-        RowViews rv = rowViews.get(row);
-        CardViews cv = rv.cards.get(cols[row]);
-        int type = cv.item.type;
-        float w = widthOf(type) * dp, h = heightOf(type) * dp;
-        float s = (type == WatchItem.CHIP ? CHIP_FOCUS_SCALE : FOCUS_SCALE) * (pressed ? PRESS_SCALE : 1f);
-        float pad = 4 * dp;
-        float cx = rowsView.getLeft() - lens.getLeft() + rv.targetTx + cols[row] * (widthOf(type) + GAP) * dp + w / 2f;
-        float cy = rowsView.getTop() - lens.getTop() + rowsTy + (rv.top + ROW_HEADER) * dp + h / 2f;
-        float lw = w * s + 2 * pad, lh = h * s + 2 * pad;
-        float radius = (type == WatchItem.CHIP ? h / 2f : 10 * dp) * s + pad;
-        lens.moveTo(cx - lw / 2f, cy - lh / 2f, lw, lh, radius, animate);
     }
 
     /** Keeps the focused card inside the page, with room for its focus scale. */
@@ -418,17 +409,34 @@ public class WatchView extends FrameLayout {
         heroMeta.setVisibility(TextUtils.isEmpty(shown.meta) ? View.GONE : View.VISIBLE);
         heroDesc.setText(shown.description);
         heroDesc.setVisibility(TextUtils.isEmpty(shown.description) ? View.GONE : View.VISIBLE);
-        if (animate && row <= 1) {
+        if (animate) {
             // New title rises in; the spring picks up from wherever the last one was.
             Motion.set(heroTitle, DynamicAnimation.ALPHA, 0f);
             Motion.set(heroTitle, DynamicAnimation.TRANSLATION_Y, 10 * dp);
             Motion.to(heroTitle, DynamicAnimation.ALPHA, 1f, Motion.SMOOTH);
             Motion.to(heroTitle, DynamicAnimation.TRANSLATION_Y, 0f, Motion.SMOOTH);
         }
-        // Backdrop after a short pause, so scrolling fast doesn't download every picture.
+        // Backdrop: at once when it is already loaded (the usual case, see prefetch), otherwise after a short
+        // pause so scrolling fast doesn't download every picture.
         pendingBackdrop = shown.backdropUrl;
         handler.removeCallbacks(backdrop);
-        handler.postDelayed(backdrop, 280);
+        if (pendingBackdrop == null || ImageLoader.has(pendingBackdrop, ImageLoader.BACKDROP_W)) backdrop.run();
+        else handler.postDelayed(backdrop, 150);
+        prefetch();
+    }
+
+    /** Loads the backdrops of the cards one move away, so the next focus change shows its picture at once. */
+    private void prefetch() {
+        for (int r = Math.max(0, row - 1); r <= Math.min(rows.size() - 1, row + 1); r++) {
+            List<WatchItem> items = rows.get(r).items;
+            int reach = r == row ? 2 : 1;
+            for (int c = Math.max(0, cols[r] - reach); c <= Math.min(items.size() - 1, cols[r] + reach); c++) {
+                WatchItem it = items.get(c);
+                WatchItem h = it.type == WatchItem.CHIP && it.action == null ? heroFor(it) : null;
+                String url = (h != null ? h : it).backdropUrl;
+                if (url != null) ImageLoader.prefetch(url, ImageLoader.BACKDROP_W);
+            }
+        }
     }
 
     private final Runnable backdrop = () -> {
@@ -527,74 +535,6 @@ public class WatchView extends FrameLayout {
         handler.removeCallbacksAndMessages(null);
     }
 
-    // ---- the lens ----------------------------------------------------------------------------------
-
-    /** The Liquid Glass highlight: one glass shape whose position and size spring between cards. */
-    private final class Lens extends View {
-        private final LiquidGlass.Painter painter;
-        private final FloatValueHolder x = new FloatValueHolder(), y = new FloatValueHolder();
-        private final FloatValueHolder w = new FloatValueHolder(), h = new FloatValueHolder();
-        private final FloatValueHolder r = new FloatValueHolder(), a = new FloatValueHolder();
-        private final SpringAnimation[] springs;
-        private boolean shown;
-
-        Lens(Context c) {
-            super(c);
-            painter = new LiquidGlass.Painter(dp, 0f);
-            setWillNotDraw(false);
-            FloatValueHolder[] hs = {x, y, w, h, r, a};
-            springs = new SpringAnimation[hs.length];
-            for (int i = 0; i < hs.length; i++) {
-                springs[i] = new SpringAnimation(hs[i]);
-                springs[i].setSpring(Motion.BOUNCY.force(0f));
-                springs[i].addUpdateListener((anim, v, vel) -> invalidate());
-            }
-            // Fades use the smooth spring: no bounce on opacity.
-            springs[5].setSpring(Motion.SMOOTH.force(0f));
-            springs[5].setMinimumVisibleChange(DynamicAnimation.MIN_VISIBLE_CHANGE_ALPHA);
-        }
-
-        void moveTo(float nx, float ny, float nw, float nh, float nr, boolean animate) {
-            float[] to = {nx, ny, nw, nh, nr};
-            FloatValueHolder[] hs = {x, y, w, h, r};
-            if (!shown || !animate) {
-                // First focus: appear in place instead of flying in from the last spot.
-                for (int i = 0; i < hs.length; i++) {
-                    springs[i].cancel();
-                    hs[i].setValue(to[i]);
-                }
-            } else {
-                for (int i = 0; i < hs.length; i++) springs[i].animateToFinalPosition(to[i]);
-            }
-            shown = true;
-            if (animate) springs[5].animateToFinalPosition(1f);
-            else {
-                springs[5].cancel();
-                a.setValue(1f);
-            }
-            invalidate();
-        }
-
-        void hide(boolean animate) {
-            shown = false;
-            if (animate) springs[5].animateToFinalPosition(0f);
-            else {
-                springs[5].cancel();
-                a.setValue(0f);
-            }
-            invalidate();
-        }
-
-        @Override
-        protected void onDraw(android.graphics.Canvas c) {
-            float alpha = Math.max(0f, Math.min(1f, a.getValue()));
-            if (alpha <= 0.01f) return;
-            painter.setAlpha((int) (alpha * 255));
-            float x0 = x.getValue(), y0 = y.getValue();
-            painter.draw(c, null, x0, y0, x0 + w.getValue(), y0 + h.getValue(), Math.max(0f, r.getValue()), true);
-        }
-    }
-
     // ---- helpers -----------------------------------------------------------------------------------
 
     private static int widthOf(int type) {
@@ -613,6 +553,13 @@ public class WatchView extends FrameLayout {
         t.setFontVariationSettings("'wght' " + weight);
         t.setIncludeFontPadding(false);
         return t;
+    }
+
+    private static GradientDrawable rounded(int color, float radius) {
+        GradientDrawable d = new GradientDrawable();
+        d.setColor(color);
+        d.setCornerRadius(radius);
+        return d;
     }
 
     private GradientDrawable circle(int color) {

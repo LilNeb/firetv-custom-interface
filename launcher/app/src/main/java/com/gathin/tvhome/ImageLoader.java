@@ -36,7 +36,25 @@ final class ImageLoader {
                 }
             };
 
+    /** Width the Watch page backdrops are decoded at; shared so prefetch and display hit the same cache entry. */
+    static final int BACKDROP_W = 1280;
+
     private ImageLoader() {
+    }
+
+    static boolean has(String url, int maxWidthPx) {
+        return CACHE.get(url + "@" + maxWidthPx) != null;
+    }
+
+    private static final java.util.Set<String> PREFETCHING = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    /**
+     * Warms the cache, once per URL.
+     * shortcut: a failed prefetch is not retried; the card still loads its backdrop normally when focused.
+     */
+    static void prefetch(String url, int maxWidthPx) {
+        String key = url + "@" + maxWidthPx;
+        if (!has(url, maxWidthPx) && PREFETCHING.add(key)) get(url, maxWidthPx, b -> PREFETCHING.remove(key));
     }
 
     /** Loads the URL into the view, downsampled to about maxWidthPx wide. A newer request for the view wins. */

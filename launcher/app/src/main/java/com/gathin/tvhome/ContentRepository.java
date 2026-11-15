@@ -44,7 +44,7 @@ final class ContentRepository {
 
     interface LinkCallback {
         /** Shows the code; called once. */
-        void onCode(String code, String link);
+        void onCode(String code, String link, String qrUrl);
 
         /** Signed in: the auth key is saved. */
         void onSignedIn();
@@ -96,7 +96,8 @@ final class ContentRepository {
                 JSONObject r = new JSONObject(get(LINK_API + "create?type=Create")).getJSONObject("result");
                 String code = r.getString("code");
                 String link = r.optString("link", "https://link.stremio.com/" + code);
-                main.post(() -> cb.onCode(code, link));
+                String qr = r.optString("qrcode", "https://link.stremio.com/qr?data=" + Uri.encode(link));
+                main.post(() -> cb.onCode(code, link, qr));
                 long end = System.currentTimeMillis() + 5 * 60_000L;
                 while (!linkCancelled && System.currentTimeMillis() < end) {
                     Thread.sleep(3000);

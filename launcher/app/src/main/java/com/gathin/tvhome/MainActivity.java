@@ -9,8 +9,6 @@ import android.graphics.Bitmap;
 import android.graphics.Rect;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
-import android.graphics.drawable.LayerDrawable;
-import android.graphics.drawable.StateListDrawable;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
 import android.media.tv.TvContract;
@@ -147,6 +145,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
 
         root = findViewById(R.id.root);
         glass = findViewById(R.id.glass);
+        // tvOS: the focused tile lifts on its own; no outline drawn around it.
+        glass.setVisibility(View.GONE);
         ambient = findViewById(R.id.ambient);
         heroName = findViewById(R.id.heroName);
         dockDot = findViewById(R.id.dockDot);
@@ -233,7 +233,6 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
         btnInputs.setOnKeyListener(pillKeys);
         btnWifi.setOnKeyListener(pillKeys);
         btnSettings.setOnKeyListener(pillKeys);
-        for (View b : new View[]{btnInputs, btnWifi, btnSettings}) b.setBackground(pillBackground(21));
         setUpPages();
 
         // Hide the glass when focus leaves the tiles.
@@ -627,13 +626,11 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
         bgRes = res;
         if (first) {
             bgPhoto.setImageResource(res);
-            if (heroBitmap == null || page == PAGE_APPS) Backdrop.set(photoBitmap());
             return;
         }
         // Fade through black so the swap isn't a jump cut.
         bgPhoto.animate().alpha(0f).setDuration(600).withEndAction(() -> {
             bgPhoto.setImageResource(res);
-            if (heroBitmap == null || page == PAGE_APPS) Backdrop.set(photoBitmap());
             bgPhoto.animate().alpha(1f).setDuration(900);
         });
     }
@@ -697,13 +694,15 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
         heroBgA = findViewById(R.id.heroBgA);
         heroBgB = findViewById(R.id.heroBgB);
         heroScrim = findViewById(R.id.heroScrim);
-        tabs.setBackground(new LiquidGlass.GlassDrawable(density, 26 * density, 1f));
-        // The page marker: a brighter glass lens under the current tab.
-        GradientDrawable tint = new GradientDrawable();
-        tint.setColor(0x38FFFFFF);
-        tint.setCornerRadius(21 * density);
-        tabIndicator.setBackground(new LayerDrawable(new Drawable[]{
-                tint, new LiquidGlass.GlassDrawable(density, 21 * density, 1f)}));
+        // tvOS tab bar: a translucent track; the current tab sits on a grey pill that turns white when focused.
+        GradientDrawable track = new GradientDrawable();
+        track.setColor(0x24FFFFFF);
+        track.setCornerRadius(26 * density);
+        tabs.setBackground(track);
+        GradientDrawable marker = new GradientDrawable();
+        marker.setColor(0x40FFFFFF);
+        marker.setCornerRadius(21 * density);
+        tabIndicator.setBackground(marker);
 
         TextView[] tabViews = {tabWatch, tabApps};
         for (int i = 0; i < tabViews.length; i++) {
@@ -782,19 +781,15 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
     }
 
     private void updateTabText() {
-        tabWatch.setTextColor(page == PAGE_WATCH || tabWatch.hasFocus() ? Color.WHITE : 0xB3FFFFFF);
-        tabApps.setTextColor(page == PAGE_APPS || tabApps.hasFocus() ? Color.WHITE : 0xB3FFFFFF);
+        boolean focused = tabWatch.hasFocus() || tabApps.hasFocus();
+        ((GradientDrawable) tabIndicator.getBackground()).setColor(focused ? 0xF5FFFFFF : 0x40FFFFFF);
+        tabWatch.setTextColor(tabColor(tabWatch, PAGE_WATCH));
+        tabApps.setTextColor(tabColor(tabApps, PAGE_APPS));
     }
 
-    /** Top-bar pill: Liquid Glass at rest, solid white when focused (tvOS). */
-    private Drawable pillBackground(float radiusDp) {
-        StateListDrawable d = new StateListDrawable();
-        GradientDrawable on = new GradientDrawable();
-        on.setColor(0xF5FFFFFF);
-        on.setCornerRadius(radiusDp * density);
-        d.addState(new int[]{android.R.attr.state_focused}, on);
-        d.addState(new int[]{}, new LiquidGlass.GlassDrawable(density, radiusDp * density, 1f));
-        return d;
+    private int tabColor(TextView t, int p) {
+        if (t.hasFocus()) return 0xFF111111;
+        return page == p ? Color.WHITE : 0xB3FFFFFF;
     }
 
     // ---- Watch page --------------------------------------------------------------------------------
@@ -902,13 +897,11 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
             heroUrl = null;
             heroBitmap = null;
             showHeroBackdrop(false, true);
-            Backdrop.set(photoBitmap());
             return;
         }
         if (url.equals(heroUrl)) return;
         heroUrl = url;
-        int w = Math.min(1280, getResources().getDisplayMetrics().widthPixels);
-        ImageLoader.get(url, w, b -> {
+        ImageLoader.get(url, ImageLoader.BACKDROP_W, b -> {
             if (!url.equals(heroUrl)) return;
             heroBitmap = b;
             if (page != PAGE_WATCH) {
@@ -920,16 +913,15 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
                 heroBgB.setImageBitmap(b);
                 Motion.set(heroBgB, DynamicAnimation.ALPHA, 0f);
                 Motion.set(heroBgA, DynamicAnimation.ALPHA, heroBgA.getDrawable() != null ? heroBgA.getAlpha() : 0f);
-                Motion.to(heroBgB, DynamicAnimation.ALPHA, 1f, Motion.SLOW);
+                Motion.to(heroBgB, DynamicAnimation.ALPHA, 1f, Motion.SMOOTH);
                 showingB = true;
             } else {
                 heroBgA.setImageBitmap(b);
                 Motion.set(heroBgA, DynamicAnimation.ALPHA, 1f);
-                Motion.to(heroBgB, DynamicAnimation.ALPHA, 0f, Motion.SLOW);
+                Motion.to(heroBgB, DynamicAnimation.ALPHA, 0f, Motion.SMOOTH);
                 showingB = false;
             }
-            Motion.to(heroScrim, DynamicAnimation.ALPHA, 1f, Motion.SLOW);
-            Backdrop.set(b);
+            Motion.to(heroScrim, DynamicAnimation.ALPHA, 1f, Motion.SMOOTH);
         });
     }
 
@@ -944,7 +936,6 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
             if (animate) Motion.to(heroBgA, DynamicAnimation.ALPHA, 0f, Motion.SLOW);
             else Motion.set(heroBgA, DynamicAnimation.ALPHA, 0f);
         }
-        Backdrop.set(show && heroBitmap != null ? heroBitmap : photoBitmap());
     }
 
     private Bitmap photoBitmap() {
@@ -954,11 +945,15 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
 
     // ---- Stremio sign-in -----------------------------------------------------------------------------
 
-    /** Stremio's sign-in by code: a glass panel with the code and the link to open on a phone. */
+    /** Stremio's sign-in by code: a panel with the QR code, the code and the link to open on a phone. */
     private void showLink() {
         if (linkPanel != null) return;
         View panel = getLayoutInflater().inflate(R.layout.panel_link, root, false);
-        panel.findViewById(R.id.linkCard).setBackground(new LiquidGlass.GlassDrawable(density, 28 * density, 1f));
+        GradientDrawable card = new GradientDrawable();
+        card.setColor(0xF21C1C1E);
+        card.setCornerRadius(28 * density);
+        panel.findViewById(R.id.linkCard).setBackground(card);
+        ImageView qr = panel.findViewById(R.id.linkQr);
         TextView code = panel.findViewById(R.id.linkCode);
         TextView hint = panel.findViewById(R.id.linkHint);
         root.addView(panel);
@@ -969,13 +964,17 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
         Motion.to(panel, DynamicAnimation.ALPHA, 1f, Motion.SMOOTH);
         Motion.scale(panel, 1f, Motion.SNAPPY);
         View close = panel.findViewById(R.id.linkClose);
-        close.setBackground(pillBackground(21));
         close.setOnClickListener(v -> closeLink());
+        // Modal: the arrows stay on the panel instead of moving focus to the page behind it.
+        close.setOnKeyListener((v, keyCode, event) -> keyCode == KeyEvent.KEYCODE_DPAD_UP
+                || keyCode == KeyEvent.KEYCODE_DPAD_DOWN || keyCode == KeyEvent.KEYCODE_DPAD_LEFT
+                || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT);
         close.requestFocus();
         repo.startLink(new ContentRepository.LinkCallback() {
             @Override
-            public void onCode(String c, String link) {
+            public void onCode(String c, String link, String qrUrl) {
                 code.setText(c);
+                ImageLoader.into(qr, qrUrl, (int) (200 * density));
                 hint.setText(getString(R.string.link_hint, link.replaceFirst("^https?://", "")));
             }
 
