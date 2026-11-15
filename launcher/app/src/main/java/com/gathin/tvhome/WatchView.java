@@ -82,6 +82,7 @@ public class WatchView extends FrameLayout {
     private WatchItem heroItem;
     private String pendingBackdrop;
     private boolean backdropAnimate;
+    private boolean switching;
     private boolean pressed;
 
     private static final class RowViews {
@@ -204,9 +205,15 @@ public class WatchView extends FrameLayout {
         tab = to;
         row = 0;
         cols = new int[0];
-        // No slide or fade of the rows: a frequent action, and fading 60 cards costs this GPU 16 ms a frame.
-        // The backdrop and the hero already cross-fade to the new tab.
+        // Same move as the Watch / Apps page change: 24 dp towards the button's side, fade, 250 ms ease-out, on a
+        // GPU layer so the fade is one composite (fading 60 cards one by one cost this GPU 16 ms a frame).
+        switching = true;
         showTab();
+        switching = false;
+        animate().cancel();
+        setAlpha(0f);
+        setTranslationX(delta * 24 * dp);
+        animate().alpha(1f).translationX(0f).setDuration(250).setInterpolator(Motion.EASE_OUT).withLayer().start();
         return true;
     }
 
@@ -568,8 +575,7 @@ public class WatchView extends FrameLayout {
         // Backdrop: at once when it is already loaded (the usual case, see prefetch), otherwise after a short
         // pause so scrolling fast doesn't download every picture.
         pendingBackdrop = shown.backdropUrl;
-        // A tab change swaps the backdrop at once: cross-fading two full-screen pictures costs this GPU 22 ms a frame.
-        backdropAnimate = animate;
+        backdropAnimate = animate || switching;
         handler.removeCallbacks(backdrop);
         if (pendingBackdrop == null || ImageLoader.has(pendingBackdrop, ImageLoader.BACKDROP_W)) backdrop.run();
         else handler.postDelayed(backdrop, 150);

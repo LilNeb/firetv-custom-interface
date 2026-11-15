@@ -793,7 +793,10 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
             });
         }
         tabs.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> placeIndicator(false));
-        pagesView.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> setPage(page, false));
+        // Only on a size change: any relayout (a tab's rows swapped in) would otherwise cut the tab animation short.
+        pagesView.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+            if (r - l != or - ol || b - t != ob - ot) setPage(page, false);
+        });
     }
 
     private void enterPage(int p) {
