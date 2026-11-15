@@ -1,3 +1,29 @@
+# firetv-custom-interface
+
+Launcher personnel pour le Fire TV Stick 4K de Nicolas (2e génération, AFTKM, Fire OS 8.1.8.5), basé sur
+[itsmeterrylin/fire-tv-cleanup](https://github.com/itsmeterrylin/fire-tv-cleanup) (licence MIT, historique conservé).
+
+Changements par rapport à l'original :
+
+- textes en français (`launcher/app/src/main/res/values-fr/strings.xml`) ;
+- dock de départ Stremio, YouTube, Netflix, Disney+ (`launcher/app/src/main/res/values/config.xml`) ;
+- bouton Accueil fiable après les Paramètres (`HomeRedirectService.java`).
+
+**Compiler** (macOS, `brew install openjdk@17` et `brew install --cask android-commandlinetools`, puis
+`sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"`) :
+
+```bash
+cd launcher
+export JAVA_HOME=$(brew --prefix openjdk@17)/libexec/openjdk.jdk/Contents/Home
+echo "sdk.dir=/opt/homebrew/share/android-commandlinetools" > local.properties   # + tvhome.userName=Prénom
+./gradlew assembleDebug
+```
+
+**Installer ou mettre à jour** (débogage ADB activé sur le stick) : `FIRE_TV=<ip du stick> scripts/fire-tv/installer.sh`.
+**Revenir à l'accueil Amazon** : `FIRE_TV=<ip du stick> scripts/fire-tv/annuler.sh`.
+
+---
+
 # fire-tv-cleanup
 
 **Your TV, minus the ads.** Debloat an Android TV, Google TV or Fire TV over ADB and give it a

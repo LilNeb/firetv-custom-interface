@@ -52,7 +52,9 @@ public class HomeRedirectService extends AccessibilityService {
         handler.removeCallbacks(redirect);
         if (!AMAZON_LAUNCHER.contentEquals(pkg) || !cls.toString().contains(AMAZON_HOME)) return;
         if (now - settingsSeenAt < SETTINGS_GRACE_MS) {
-            Log.i(TAG, "home screen on the way into Settings: left alone");
+            // Settings normally opens within the grace and cancels this; if Amazon's home is still up after it, take over.
+            Log.i(TAG, "home screen right after Settings: waiting");
+            handler.postDelayed(redirect, SETTINGS_GRACE_MS);
             return;
         }
         Log.i(TAG, "home screen: opening launcher");
