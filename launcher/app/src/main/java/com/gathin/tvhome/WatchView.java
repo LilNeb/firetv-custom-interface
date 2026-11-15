@@ -55,7 +55,7 @@ public class WatchView extends FrameLayout {
     private static final int ROWS_TOP = 172;
     /** Where a focused row below the first settles: under the hero, with room for the focus scale. */
     private static final int FOCUSED_ROW_TOP = 196;
-    private static final float FOCUS_SCALE = 1.08f;
+    private static final float FOCUS_SCALE = 1.10f;
     private static final float CHIP_FOCUS_SCALE = 1.05f;
     private static final float PRESS_SCALE = 0.97f;
 
@@ -460,6 +460,9 @@ public class WatchView extends FrameLayout {
                 if (s == cv.s && z == cv.z) continue;   // unchanged: no spring to start (there can be 200 cards)
                 cv.s = s;
                 cv.z = z;
+                // Picture cards: a white ring marks the focus at once (a state, seen at every move: no fade), so
+                // it reads on any thumbnail; the scale and shadow then follow with the spring.
+                if (cv.fill == null) cv.card.setForeground(on ? ring(px(10)) : null);
                 if (animate) {
                     // Scaled text is re-rasterised at every frame of the spring; a layer scales one texture instead.
                     View card = cv.card;
@@ -730,6 +733,13 @@ public class WatchView extends FrameLayout {
         t.setFontVariationSettings("'wght' " + weight);
         t.setIncludeFontPadding(false);
         return t;
+    }
+
+    private GradientDrawable ring(float radius) {
+        GradientDrawable d = new GradientDrawable();
+        d.setCornerRadius(radius);
+        d.setStroke(px(3), Color.WHITE);
+        return d;
     }
 
     private static GradientDrawable rounded(int color, float radius) {

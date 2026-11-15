@@ -318,6 +318,14 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
                 if (!inDock) {
                     Motion.scale(view, s, Motion.SNAPPY);
                 }
+                // Same focus ring as the Watch page's cards, shown at once.
+                android.graphics.drawable.GradientDrawable ring = null;
+                if (focused) {
+                    ring = new android.graphics.drawable.GradientDrawable();
+                    ring.setCornerRadius(Math.min(view.getWidth(), view.getHeight()) * CORNER_RATIO);
+                    ring.setStroke(Math.round(density * 3), android.graphics.Color.WHITE);
+                }
+                view.setForeground(ring);
                 name.animate().alpha(focused ? 1f : 0f)
                         .translationY(focused ? density * 4f : -density * 6f)
                         .setDuration(150).setInterpolator(Motion.EASE_OUT).start();
