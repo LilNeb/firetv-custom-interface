@@ -215,7 +215,7 @@ final class ContentRepository {
                 String id = m.optString("id"), type = m.optString("type", "movie");
                 WatchItem w = new WatchItem(WatchItem.POSTER, WatchItem.STREMIO);
                 w.title = m.optString("name");
-                w.kicker = "Stremio · " + title;
+                w.kicker = title;
                 String rating = m.optString("imdbRating", "");
                 w.meta = join(" · ", m.optString("releaseInfo", ""), genres(m),
                         rating.isEmpty() ? "" : "IMDb " + rating);

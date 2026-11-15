@@ -224,6 +224,9 @@ public class WatchView extends FrameLayout {
             top += ROW_HEADER + h + ROW_SPACING;
             rowViews.add(rv);
         }
+        // Full height: as wrap_content the rows would be squeezed into what's left under the hero.
+        rowsView.getLayoutParams().height = px(top);
+        rowsView.requestLayout();
     }
 
     private CardViews card(WatchItem item) {
@@ -380,8 +383,8 @@ public class WatchView extends FrameLayout {
         float w = widthOf(type) * dp, h = heightOf(type) * dp;
         float s = (type == WatchItem.CHIP ? CHIP_FOCUS_SCALE : FOCUS_SCALE) * (pressed ? PRESS_SCALE : 1f);
         float pad = 4 * dp;
-        float cx = rowsView.getLeft() + rv.targetTx + cols[row] * (widthOf(type) + GAP) * dp + w / 2f;
-        float cy = rowsView.getTop() + rowsTy + (rv.top + ROW_HEADER) * dp + h / 2f;
+        float cx = rowsView.getLeft() - lens.getLeft() + rv.targetTx + cols[row] * (widthOf(type) + GAP) * dp + w / 2f;
+        float cy = rowsView.getTop() - lens.getTop() + rowsTy + (rv.top + ROW_HEADER) * dp + h / 2f;
         float lw = w * s + 2 * pad, lh = h * s + 2 * pad;
         float radius = (type == WatchItem.CHIP ? h / 2f : 10 * dp) * s + pad;
         lens.moveTo(cx - lw / 2f, cy - lh / 2f, lw, lh, radius, animate);

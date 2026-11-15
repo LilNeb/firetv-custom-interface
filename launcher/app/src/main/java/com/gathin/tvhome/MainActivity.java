@@ -270,7 +270,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
         grid.post(() -> {
             View focused = getCurrentFocus();
             if (page == PAGE_WATCH) {
-                if (focused == null || focused == grid || grid.findContainingViewHolder(focused) != null) {
+                if (focused == null || focused == grid || focused == tabWatch || focused == tabApps
+                        || grid.findContainingViewHolder(focused) != null) {
                     watch.requestFocus();
                 }
                 return;
