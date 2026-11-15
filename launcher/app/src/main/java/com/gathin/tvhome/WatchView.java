@@ -67,6 +67,11 @@ public class WatchView extends FrameLayout {
     private final LinearLayout rowsView;
 
     private final List<WatchItem.Row> rows = new ArrayList<>();
+    /** All rows; {@link #rows} holds only the current tab's. Tabs: Stremio, then one per YouTube account. */
+    private final List<WatchItem.Row> allRows = new ArrayList<>();
+    private final List<String> tabNames = new ArrayList<>();
+    private int tab;
+    private final LinearLayout tabsView;
     private final List<RowViews> rowViews = new ArrayList<>();
     private int row, lastRow = -1;
     private int[] cols = new int[0];
@@ -148,13 +153,26 @@ public class WatchView extends FrameLayout {
         hlp.topMargin = px(4);
         addView(hero, hlp);
 
-        rowsView = new LinearLayout(context);
+        rowsView = new LinearLayout(context) {
+            @Override
+            public boolean hasOverlappingRendering() {
+                return false;   // faded on a tab change: no full-page offscreen layer
+            }
+        };
         rowsView.setOrientation(LinearLayout.VERTICAL);
         rowsView.setClipChildren(false);
         rowsView.setClipToPadding(false);
         LayoutParams rlp = new LayoutParams(-1, -2);
         rlp.topMargin = px(ROWS_TOP);
         addView(rowsView, rlp);
+
+        // Tabs of the page, switched with the remote's rewind / fast-forward buttons.
+        tabsView = new LinearLayout(context);
+        tabsView.setGravity(Gravity.CENTER_VERTICAL);
+        LayoutParams tlp = new LayoutParams(-2, -2, Gravity.TOP | Gravity.END);
+        tlp.topMargin = px(4);
+        tlp.rightMargin = px(28);
+        addView(tabsView, tlp);
 
     }
 
@@ -164,8 +182,42 @@ public class WatchView extends FrameLayout {
 
     /** Replaces the rows, keeping the focused row and columns where they still exist. */
     void setRows(List<WatchItem.Row> newRows) {
+        String current = tab < tabNames.size() ? tabNames.get(tab) : null;
+        allRows.clear();
+        tabNames.clear();
+        for (WatchItem.Row r : newRows) {
+            if (r.items.isEmpty()) continue;
+            allRows.add(r);
+            if (!tabNames.contains(tabName(r))) tabNames.add(tabName(r));
+        }
+        tab = Math.max(0, tabNames.indexOf(current));
+        showTab();
+    }
+
+    private static String tabName(WatchItem.Row r) {
+        return r.group != null ? r.group : "Stremio";
+    }
+
+    /** Rewind / fast-forward: the previous or next tab, from its first card. */
+    boolean switchTab(int delta) {
+        int to = tab + delta;
+        if (to < 0 || to >= tabNames.size()) return false;
+        tab = to;
+        row = 0;
+        cols = new int[0];
+        showTab();
+        // The new rows slide in from the side the button points to: a short ease-out, no exit (frequent action).
+        rowsView.setAlpha(0f);
+        rowsView.setTranslationX(delta * 40 * dp);
+        rowsView.animate().alpha(1f).translationX(0f).setDuration(220).setInterpolator(Motion.EASE_OUT).start();
+        return true;
+    }
+
+    private void showTab() {
         rows.clear();
-        for (WatchItem.Row r : newRows) if (!r.items.isEmpty()) rows.add(r);
+        String name = tabNames.isEmpty() ? null : tabNames.get(tab);
+        for (WatchItem.Row r : allRows) if (tabName(r).equals(name)) rows.add(r);
+        updateTabs();
         int[] old = cols;
         cols = new int[rows.size()];
         for (int i = 0; i < cols.length; i++) {
@@ -181,6 +233,19 @@ public class WatchView extends FrameLayout {
     WatchItem focusedItem() {
         if (rows.isEmpty()) return null;
         return rows.get(row).items.get(cols[row]);
+    }
+
+    private void updateTabs() {
+        tabsView.removeAllViews();
+        if (tabNames.size() < 2) return;
+        for (int i = 0; i < tabNames.size(); i++) {
+            boolean on = i == tab;
+            TextView t = text(13, 600, on ? Color.WHITE : 0x80FFFFFF);
+            t.setText(tabNames.get(i));
+            t.setPadding(px(12), px(5), px(12), px(5));
+            if (on) t.setBackground(rounded(0x33FFFFFF, px(14)));
+            tabsView.addView(t);
+        }
     }
 
     // ---- building ----------------------------------------------------------------------------------
@@ -543,6 +608,14 @@ public class WatchView extends FrameLayout {
                 return true;
             case KeyEvent.KEYCODE_DPAD_DOWN:
                 if (row < rows.size() - 1) moveRow(row + 1);
+                return true;
+            case KeyEvent.KEYCODE_MEDIA_FAST_FORWARD:
+            case KeyEvent.KEYCODE_MEDIA_NEXT:
+                switchTab(1);
+                return true;
+            case KeyEvent.KEYCODE_MEDIA_REWIND:
+            case KeyEvent.KEYCODE_MEDIA_PREVIOUS:
+                switchTab(-1);
                 return true;
             case KeyEvent.KEYCODE_DPAD_CENTER:
             case KeyEvent.KEYCODE_ENTER:

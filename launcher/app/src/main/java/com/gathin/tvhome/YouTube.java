@@ -194,6 +194,7 @@ final class YouTube {
         for (Account a : all) if (a.name.toLowerCase(java.util.Locale.ROOT).contains(PLAYLIST_ACCOUNT)) vic = a;
         for (Account acc : all) {
             String kicker = "YouTube · " + acc.name;
+            int first = out.size();
             try {
                 addRow(out, kicker, ctx.getString(R.string.yt_row_home), browse(acc, "FEwhat_to_watch"));
                 if (acc == vic) {
@@ -204,6 +205,7 @@ final class YouTube {
             } catch (Exception e) {
                 Log.i(TAG, "youtube rows for an account failed: " + e);
             }
+            for (int i = first; i < out.size(); i++) out.get(i).group = acc.name;
         }
         return out;
     }

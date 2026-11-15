@@ -926,6 +926,22 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
         else Toast.makeText(this, getString(R.string.app_missing, pkg), Toast.LENGTH_SHORT).show();
     }
 
+    /** Rewind / fast-forward change the Watch page's tab from the top bar too. */
+    @Override
+    public boolean onKeyDown(int keyCode, KeyEvent event) {
+        if (page == PAGE_WATCH) {
+            if (keyCode == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD || keyCode == KeyEvent.KEYCODE_MEDIA_NEXT) {
+                watch.switchTab(1);
+                return true;
+            }
+            if (keyCode == KeyEvent.KEYCODE_MEDIA_REWIND || keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS) {
+                watch.switchTab(-1);
+                return true;
+            }
+        }
+        return super.onKeyDown(keyCode, event);
+    }
+
     @Override
     public void onExitUp() {
         tabWatch.requestFocus();

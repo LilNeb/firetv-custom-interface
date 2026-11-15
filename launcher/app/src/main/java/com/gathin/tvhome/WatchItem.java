@@ -45,6 +45,8 @@ final class WatchItem {
         final String title;
         final int dotColor;
         final List<WatchItem> items = new ArrayList<>();
+        /** The Watch page tab this row belongs to (a YouTube account's name); null for Stremio. */
+        String group;
 
         Row(String title, int dotColor) {
             this.title = title;
