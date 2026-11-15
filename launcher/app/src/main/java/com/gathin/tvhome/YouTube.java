@@ -205,7 +205,7 @@ final class YouTube {
             } catch (Exception e) {
                 Log.i(TAG, "youtube rows for an account failed: " + e);
             }
-            for (int i = first; i < out.size(); i++) out.get(i).group = acc.name;
+            for (int i = first; i < out.size(); i++) out.get(i).group = "YouTube";
         }
         return out;
     }
