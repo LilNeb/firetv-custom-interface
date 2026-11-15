@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- View tags holding one spring per animated property (Motion.java). -->
+    <item name="motion_alpha" type="id" />
+    <item name="motion_scale_x" type="id" />
+    <item name="motion_scale_y" type="id" />
+    <item name="motion_tx" type="id" />
+    <item name="motion_ty" type="id" />
+    <item name="motion_tz" type="id" />
+    <!-- The URL an ImageView is waiting for (ImageLoader.java). -->
+    <item name="image_url" type="id" />
+</resources>

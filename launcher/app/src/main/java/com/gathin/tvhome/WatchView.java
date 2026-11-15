@@ -1,0 +1,625 @@
+package com.gathin.tvhome;
+
+import android.content.Context;
+import android.graphics.Color;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
+import android.os.Handler;
+import android.os.Looper;
+import android.text.TextUtils;
+import android.util.AttributeSet;
+import android.util.TypedValue;
+import android.view.Gravity;
+import android.view.KeyEvent;
+import android.view.View;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
+import android.widget.TextView;
+
+import androidx.dynamicanimation.animation.DynamicAnimation;
+import androidx.dynamicanimation.animation.FloatValueHolder;
+import androidx.dynamicanimation.animation.SpringAnimation;
+
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * The Watch page: a hero (title and details of the focused card) above rows of cards. It takes focus as a
+ * single view and moves its own highlight with the D-pad, so navigation is deterministic: Left/Right within a
+ * row, Up/Down between rows (each row remembers its column), Up from the first row leaves to the top bar.
+ *
+ * Motion follows Motion.java: the focused card grows with the snappy spring, a Liquid Glass lens slides onto it
+ * with the bouncy one (as on iOS 26), and rows and the hero move with the smooth one. Nothing loops.
+ */
+public class WatchView extends FrameLayout {
+
+    interface Listener {
+        void onOpen(WatchItem item);
+
+        /** Up from the first row: the activity moves focus to the top bar. */
+        void onExitUp();
+
+        /** The focused card's backdrop, or null. Debounced. */
+        void onBackdrop(String url);
+    }
+
+    // Sizes in dp. The page is about 960 x 420 dp on a 1080p Fire TV.
+    private static final int CHIP_W = 176, CHIP_H = 48;
+    private static final int LAND_W = 204, LAND_H = 115;
+    private static final int POSTER_W = 104, POSTER_H = 156;
+    private static final int GAP = 14;
+    private static final int ROW_HEADER = 30;
+    private static final int ROW_SPACING = 20;
+    private static final int ROWS_TOP = 172;
+    private static final int FOCUSED_ROW_TOP = 14;
+    private static final float FOCUS_SCALE = 1.08f;
+    private static final float CHIP_FOCUS_SCALE = 1.05f;
+    private static final float PRESS_SCALE = 0.97f;
+
+    private final float dp;
+    private final Typeface font;
+    private final Handler handler = new Handler(Looper.getMainLooper());
+    private Listener listener;
+
+    private final LinearLayout hero;
+    private final View heroDot;
+    private final TextView heroKicker, heroTitle, heroMeta, heroDesc;
+    private final LinearLayout rowsView;
+    private final Lens lens;
+
+    private final List<WatchItem.Row> rows = new ArrayList<>();
+    private final List<RowViews> rowViews = new ArrayList<>();
+    private int row, lastRow = -1;
+    private int[] cols = new int[0];
+    private WatchItem heroItem;
+    private String pendingBackdrop;
+    private boolean pressed;
+
+    private static final class RowViews {
+        View root;
+        LinearLayout track;
+        final List<CardViews> cards = new ArrayList<>();
+        int top;
+        float targetTx;
+    }
+
+    private static final class CardViews {
+        FrameLayout card;
+        WatchItem item;
+    }
+
+    public WatchView(Context context, AttributeSet attrs) {
+        super(context, attrs);
+        dp = getResources().getDisplayMetrics().density;
+        Typeface f;
+        try {
+            f = getResources().getFont(R.font.open_sans);
+        } catch (Exception e) {
+            f = Typeface.DEFAULT;
+        }
+        font = f;
+        setFocusable(true);
+        setFocusableInTouchMode(true);
+        setClipChildren(false);
+        setClipToPadding(false);
+        setDescendantFocusability(FOCUS_BLOCK_DESCENDANTS);
+
+        hero = new LinearLayout(context);
+        hero.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout kickerRow = new LinearLayout(context);
+        kickerRow.setGravity(Gravity.CENTER_VERTICAL);
+        heroDot = new View(context);
+        heroDot.setBackground(circle(ContentRepository.STREMIO_COLOR));
+        kickerRow.addView(heroDot, new LinearLayout.LayoutParams(px(8), px(8)));
+        heroKicker = text(12, 500, 0xB3FFFFFF);
+        heroKicker.setAllCaps(true);
+        heroKicker.setLetterSpacing(0.16f);
+        LinearLayout.LayoutParams klp = new LinearLayout.LayoutParams(-2, -2);
+        klp.leftMargin = px(8);
+        kickerRow.addView(heroKicker, klp);
+        hero.addView(kickerRow);
+        heroTitle = text(34, 700, Color.WHITE);
+        heroTitle.setMaxLines(2);
+        heroTitle.setEllipsize(TextUtils.TruncateAt.END);
+        heroTitle.setLetterSpacing(-0.02f);
+        heroTitle.setLineSpacing(0, 0.92f);
+        heroTitle.setPadding(0, px(6), 0, px(4));
+        hero.addView(heroTitle);
+        heroMeta = text(14, 500, 0xCCFFFFFF);
+        heroMeta.setSingleLine(true);
+        hero.addView(heroMeta);
+        heroDesc = text(15, 400, 0xE6FFFFFF);
+        heroDesc.setMaxLines(2);
+        heroDesc.setEllipsize(TextUtils.TruncateAt.END);
+        heroDesc.setLineSpacing(0, 1.15f);
+        heroDesc.setPadding(0, px(8), 0, 0);
+        hero.addView(heroDesc);
+        LayoutParams hlp = new LayoutParams(px(540), -2);
+        hlp.topMargin = px(4);
+        addView(hero, hlp);
+
+        rowsView = new LinearLayout(context);
+        rowsView.setOrientation(LinearLayout.VERTICAL);
+        rowsView.setClipChildren(false);
+        rowsView.setClipToPadding(false);
+        LayoutParams rlp = new LayoutParams(-1, -2);
+        rlp.topMargin = px(ROWS_TOP);
+        addView(rowsView, rlp);
+
+        lens = new Lens(context);
+        addView(lens, new LayoutParams(-1, -1));
+    }
+
+    void setListener(Listener l) {
+        listener = l;
+    }
+
+    /** Replaces the rows, keeping the focused row and columns where they still exist. */
+    void setRows(List<WatchItem.Row> newRows) {
+        rows.clear();
+        for (WatchItem.Row r : newRows) if (!r.items.isEmpty()) rows.add(r);
+        int[] old = cols;
+        cols = new int[rows.size()];
+        for (int i = 0; i < cols.length; i++) {
+            cols[i] = i < old.length ? Math.min(old[i], rows.get(i).items.size() - 1) : 0;
+        }
+        row = Math.max(0, Math.min(row, rows.size() - 1));
+        build();
+        lastRow = -1;
+        applyFocus(false);
+    }
+
+    /** The focused item, for tests and for the activity. */
+    WatchItem focusedItem() {
+        if (rows.isEmpty()) return null;
+        return rows.get(row).items.get(cols[row]);
+    }
+
+    // ---- building ----------------------------------------------------------------------------------
+
+    private void build() {
+        rowsView.removeAllViews();
+        rowViews.clear();
+        int top = 0;
+        for (WatchItem.Row r : rows) {
+            RowViews rv = new RowViews();
+            LinearLayout box = new LinearLayout(getContext());
+            box.setOrientation(LinearLayout.VERTICAL);
+            box.setClipChildren(false);
+            box.setClipToPadding(false);
+
+            LinearLayout header = new LinearLayout(getContext());
+            header.setGravity(Gravity.CENTER_VERTICAL);
+            View dot = new View(getContext());
+            dot.setBackground(circle(r.dotColor));
+            header.addView(dot, new LinearLayout.LayoutParams(px(8), px(8)));
+            TextView t = text(15, 600, 0xF2FFFFFF);
+            t.setText(r.title);
+            LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(-2, -2);
+            tlp.leftMargin = px(8);
+            header.addView(t, tlp);
+            box.addView(header, new LinearLayout.LayoutParams(-1, px(ROW_HEADER)));
+
+            LinearLayout track = new LinearLayout(getContext());
+            track.setClipChildren(false);
+            track.setClipToPadding(false);
+            int h = 0;
+            for (int i = 0; i < r.items.size(); i++) {
+                CardViews cv = card(r.items.get(i));
+                int w = widthOf(cv.item.type);
+                h = heightOf(cv.item.type);
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(px(w), px(h));
+                if (i > 0) lp.leftMargin = px(GAP);
+                track.addView(cv.card, lp);
+                rv.cards.add(cv);
+            }
+            box.addView(track, new LinearLayout.LayoutParams(-2, px(h)));
+            LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(-1, -2);
+            blp.bottomMargin = px(ROW_SPACING);
+            rowsView.addView(box, blp);
+            rv.root = box;
+            rv.track = track;
+            rv.top = top;
+            top += ROW_HEADER + h + ROW_SPACING;
+            rowViews.add(rv);
+        }
+    }
+
+    private CardViews card(WatchItem item) {
+        CardViews cv = new CardViews();
+        cv.item = item;
+        FrameLayout card = new FrameLayout(getContext());
+        cv.card = card;
+        if (item.type == WatchItem.CHIP) {
+            // Liquid Glass button: clear body, specular top, light rim.
+            card.setBackground(new LiquidGlass.GlassDrawable(dp, px(CHIP_H / 2f), 1f));
+            LinearLayout content = new LinearLayout(getContext());
+            content.setGravity(Gravity.CENTER_VERTICAL);
+            content.setPadding(px(16), 0, px(14), 0);
+            ImageView icon = new ImageView(getContext());
+            icon.setImageResource(item.iconRes);
+            icon.setColorFilter(Color.WHITE);
+            content.addView(icon, new LinearLayout.LayoutParams(px(20), px(20)));
+            LinearLayout texts = new LinearLayout(getContext());
+            texts.setOrientation(LinearLayout.VERTICAL);
+            TextView k = text(9, 700, 0xA6FFFFFF);
+            k.setAllCaps(true);
+            k.setLetterSpacing(0.16f);
+            k.setText(WatchItem.YOUTUBE.equals(item.app) ? "YouTube" : "Stremio");
+            TextView t = text(13, 600, Color.WHITE);
+            t.setSingleLine(true);
+            t.setEllipsize(TextUtils.TruncateAt.END);
+            t.setText(item.title);
+            texts.addView(k);
+            texts.addView(t);
+            LinearLayout.LayoutParams tl = new LinearLayout.LayoutParams(0, -2, 1f);
+            tl.leftMargin = px(12);
+            content.addView(texts, tl);
+            card.addView(content, new LayoutParams(-1, -1));
+        } else {
+            GradientDrawable bg = new GradientDrawable();
+            bg.setCornerRadius(px(10));
+            bg.setColor(0xFF1C1C22);
+            card.setBackground(bg);
+            card.setClipToOutline(true);
+            // Title underneath the picture, visible while it loads or if it never does.
+            TextView fallback = text(item.type == WatchItem.POSTER ? 14 : 13, 700, 0xCCFFFFFF);
+            fallback.setGravity(Gravity.CENTER);
+            fallback.setPadding(px(10), 0, px(10), 0);
+            fallback.setText(item.title);
+            card.addView(fallback, new LayoutParams(-1, -1));
+            ImageView img = new ImageView(getContext());
+            img.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            card.addView(img, new LayoutParams(-1, -1));
+            ImageLoader.into(img, item.imageUrl, px(widthOf(item.type)) * 2);
+
+            if (item.type == WatchItem.LANDSCAPE) {
+                View scrim = new View(getContext());
+                scrim.setBackground(new GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP,
+                        new int[]{0xD9000000, 0x66000000, 0x00000000}));
+                card.addView(scrim, new LayoutParams(-1, -1));
+                LinearLayout texts = new LinearLayout(getContext());
+                texts.setOrientation(LinearLayout.VERTICAL);
+                texts.setPadding(px(10), 0, px(10), px(item.progress >= 0 ? 12 : 9));
+                TextView t = text(13, 700, Color.WHITE);
+                t.setSingleLine(true);
+                t.setEllipsize(TextUtils.TruncateAt.END);
+                t.setText(item.title);
+                TextView s = text(11, 500, 0xCCFFFFFF);
+                s.setSingleLine(true);
+                s.setEllipsize(TextUtils.TruncateAt.END);
+                s.setText(item.subtitle);
+                texts.addView(t);
+                texts.addView(s);
+                card.addView(texts, new LayoutParams(-1, -2, Gravity.BOTTOM));
+                if (item.progress >= 0) {
+                    FrameLayout bar = new FrameLayout(getContext());
+                    GradientDrawable tb = new GradientDrawable();
+                    tb.setColor(0x4DFFFFFF);
+                    tb.setCornerRadius(px(2));
+                    bar.setBackground(tb);
+                    View fill = new View(getContext());
+                    GradientDrawable fb = new GradientDrawable();
+                    fb.setColor(Color.WHITE);
+                    fb.setCornerRadius(px(2));
+                    fill.setBackground(fb);
+                    int barW = widthOf(item.type) - 20;
+                    bar.addView(fill, new LayoutParams(Math.max(px(3), (int) (px(barW) * item.progress)), -1));
+                    LayoutParams blp = new LayoutParams(px(barW), px(3), Gravity.BOTTOM | Gravity.START);
+                    blp.leftMargin = px(10);
+                    blp.bottomMargin = px(7);
+                    card.addView(bar, blp);
+                }
+            }
+        }
+        return cv;
+    }
+
+    // ---- focus -------------------------------------------------------------------------------------
+
+    @Override
+    protected void onFocusChanged(boolean gain, int direction, android.graphics.Rect previous) {
+        super.onFocusChanged(gain, direction, previous);
+        applyFocus(true);
+    }
+
+    private void applyFocus(boolean animate) {
+        if (rowViews.isEmpty()) return;
+        boolean focused = hasFocus();
+        for (int r = 0; r < rowViews.size(); r++) {
+            RowViews rv = rowViews.get(r);
+            for (int c = 0; c < rv.cards.size(); c++) {
+                CardViews cv = rv.cards.get(c);
+                boolean on = focused && r == row && c == cols[r];
+                float s = on ? (cv.item.type == WatchItem.CHIP ? CHIP_FOCUS_SCALE : FOCUS_SCALE) : 1f;
+                if (on && pressed) s *= PRESS_SCALE;
+                if (animate) {
+                    Motion.scale(cv.card, s, Motion.SNAPPY);
+                    Motion.to(cv.card, DynamicAnimation.TRANSLATION_Z, on ? 10 * dp : 0f, Motion.SNAPPY);
+                } else {
+                    Motion.set(cv.card, DynamicAnimation.SCALE_X, s);
+                    Motion.set(cv.card, DynamicAnimation.SCALE_Y, s);
+                    Motion.set(cv.card, DynamicAnimation.TRANSLATION_Z, on ? 10 * dp : 0f);
+                }
+            }
+            scrollRow(rv, cols[r], animate);
+        }
+
+        // Rows: the first two sit under the hero; deeper rows slide up and the hero steps aside.
+        boolean heroVisible = row <= 1;
+        float ty = heroVisible ? 0f : (FOCUSED_ROW_TOP - ROWS_TOP - rowViews.get(row).top) * dp;
+        if (animate) Motion.to(rowsView, DynamicAnimation.TRANSLATION_Y, ty, Motion.SMOOTH);
+        else Motion.set(rowsView, DynamicAnimation.TRANSLATION_Y, ty);
+        for (int r = 0; r < rowViews.size(); r++) {
+            float a = !heroVisible && r < row ? 0f : 1f;
+            if (animate) Motion.to(rowViews.get(r).root, DynamicAnimation.ALPHA, a, Motion.SMOOTH);
+            else Motion.set(rowViews.get(r).root, DynamicAnimation.ALPHA, a);
+        }
+        if (animate) {
+            Motion.to(hero, DynamicAnimation.ALPHA, heroVisible ? 1f : 0f, Motion.SMOOTH);
+            Motion.to(hero, DynamicAnimation.TRANSLATION_Y, heroVisible ? 0f : -20 * dp, Motion.SMOOTH);
+        } else {
+            Motion.set(hero, DynamicAnimation.ALPHA, heroVisible ? 1f : 0f);
+            Motion.set(hero, DynamicAnimation.TRANSLATION_Y, heroVisible ? 0f : -20 * dp);
+        }
+        moveLens(focused, ty, animate);
+        updateHero(animate);
+        lastRow = row;
+    }
+
+    /** Puts the glass lens where the focused card will settle, so it lands with the card. */
+    private void moveLens(boolean focused, float rowsTy, boolean animate) {
+        if (!focused) {
+            lens.hide(animate);
+            return;
+        }
+        RowViews rv = rowViews.get(row);
+        CardViews cv = rv.cards.get(cols[row]);
+        int type = cv.item.type;
+        float w = widthOf(type) * dp, h = heightOf(type) * dp;
+        float s = (type == WatchItem.CHIP ? CHIP_FOCUS_SCALE : FOCUS_SCALE) * (pressed ? PRESS_SCALE : 1f);
+        float pad = 4 * dp;
+        float cx = rowsView.getLeft() + rv.targetTx + cols[row] * (widthOf(type) + GAP) * dp + w / 2f;
+        float cy = rowsView.getTop() + rowsTy + (rv.top + ROW_HEADER) * dp + h / 2f;
+        float lw = w * s + 2 * pad, lh = h * s + 2 * pad;
+        float radius = (type == WatchItem.CHIP ? h / 2f : 10 * dp) * s + pad;
+        lens.moveTo(cx - lw / 2f, cy - lh / 2f, lw, lh, radius, animate);
+    }
+
+    /** Keeps the focused card inside the page, with room for its focus scale. */
+    private void scrollRow(RowViews rv, int col, boolean animate) {
+        if (rv.cards.isEmpty()) return;
+        int w = widthOf(rv.cards.get(0).item.type);
+        float visible = getWidth() > 0 ? getWidth() / dp : 848;
+        float left = col * (w + GAP);
+        float right = left + w;
+        float margin = 28;
+        float tx = right + margin > visible ? -(right + margin - visible) : 0f;
+        rv.targetTx = tx * dp;
+        if (animate) Motion.to(rv.track, DynamicAnimation.TRANSLATION_X, tx * dp, Motion.SMOOTH);
+        else Motion.set(rv.track, DynamicAnimation.TRANSLATION_X, tx * dp);
+    }
+
+    private void updateHero(boolean animate) {
+        WatchItem it = focusedItem();
+        if (it == null) return;
+        WatchItem shown = it.type == WatchItem.CHIP && it.action == null && heroFor(it) != null ? heroFor(it) : it;
+        if (shown == heroItem) return;
+        heroItem = shown;
+        heroDot.setBackground(circle(WatchItem.YOUTUBE.equals(it.app)
+                ? ContentRepository.YOUTUBE_COLOR : ContentRepository.STREMIO_COLOR));
+        heroKicker.setText(it.kicker);
+        heroTitle.setText(shown.title);
+        heroMeta.setText(shown.meta);
+        heroMeta.setVisibility(TextUtils.isEmpty(shown.meta) ? View.GONE : View.VISIBLE);
+        heroDesc.setText(shown.description);
+        heroDesc.setVisibility(TextUtils.isEmpty(shown.description) ? View.GONE : View.VISIBLE);
+        if (animate && row <= 1) {
+            // New title rises in; the spring picks up from wherever the last one was.
+            Motion.set(heroTitle, DynamicAnimation.ALPHA, 0f);
+            Motion.set(heroTitle, DynamicAnimation.TRANSLATION_Y, 10 * dp);
+            Motion.to(heroTitle, DynamicAnimation.ALPHA, 1f, Motion.SMOOTH);
+            Motion.to(heroTitle, DynamicAnimation.TRANSLATION_Y, 0f, Motion.SMOOTH);
+        }
+        // Backdrop after a short pause, so scrolling fast doesn't download every picture.
+        pendingBackdrop = shown.backdropUrl;
+        handler.removeCallbacks(backdrop);
+        handler.postDelayed(backdrop, 280);
+    }
+
+    private final Runnable backdrop = () -> {
+        if (listener != null) listener.onBackdrop(pendingBackdrop);
+    };
+
+    /** A quick action that stands for a card ("Resume") shows that card in the hero. */
+    private WatchItem heroFor(WatchItem chip) {
+        if (chip.intent == null) return null;
+        for (WatchItem.Row r : rows) {
+            for (WatchItem i : r.items) {
+                if (i != chip && i.intent != null && i.intent.filterEquals(chip.intent)) return i;
+            }
+        }
+        return null;
+    }
+
+    // ---- keys --------------------------------------------------------------------------------------
+
+    @Override
+    public boolean onKeyDown(int keyCode, KeyEvent event) {
+        if (rows.isEmpty()) return super.onKeyDown(keyCode, event);
+        switch (keyCode) {
+            case KeyEvent.KEYCODE_DPAD_LEFT:
+                if (cols[row] > 0) {
+                    cols[row]--;
+                    applyFocus(true);
+                }
+                return true;
+            case KeyEvent.KEYCODE_DPAD_RIGHT:
+                if (cols[row] < rows.get(row).items.size() - 1) {
+                    cols[row]++;
+                    applyFocus(true);
+                }
+                return true;
+            case KeyEvent.KEYCODE_DPAD_UP:
+                if (row == 0) {
+                    if (listener != null) listener.onExitUp();
+                    return true;
+                }
+                row--;
+                applyFocus(true);
+                return true;
+            case KeyEvent.KEYCODE_DPAD_DOWN:
+                if (row < rows.size() - 1) {
+                    row++;
+                    applyFocus(true);
+                }
+                return true;
+            case KeyEvent.KEYCODE_DPAD_CENTER:
+            case KeyEvent.KEYCODE_ENTER:
+            case KeyEvent.KEYCODE_NUMPAD_ENTER:
+                if (event.getRepeatCount() == 0) {
+                    // Feedback on press, not on release.
+                    pressed = true;
+                    applyFocus(true);
+                }
+                return true;
+            default:
+                return super.onKeyDown(keyCode, event);
+        }
+    }
+
+    @Override
+    public boolean onKeyUp(int keyCode, KeyEvent event) {
+        if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER
+                || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER) {
+            if (!pressed) return true;
+            pressed = false;
+            applyFocus(true);
+            WatchItem it = focusedItem();
+            if (it != null && listener != null) listener.onOpen(it);
+            return true;
+        }
+        return super.onKeyUp(keyCode, event);
+    }
+
+    /** Back on the Watch page returns to the first card, like tvOS. */
+    boolean resetToStart() {
+        if (rows.isEmpty() || (row == 0 && cols[0] == 0)) return false;
+        row = 0;
+        for (int i = 0; i < cols.length; i++) cols[i] = 0;
+        applyFocus(true);
+        return true;
+    }
+
+    @Override
+    protected void onLayout(boolean changed, int l, int t, int r, int b) {
+        super.onLayout(changed, l, t, r, b);
+        if (changed) applyFocus(false);
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        super.onDetachedFromWindow();
+        handler.removeCallbacksAndMessages(null);
+    }
+
+    // ---- the lens ----------------------------------------------------------------------------------
+
+    /** The Liquid Glass highlight: one glass shape whose position and size spring between cards. */
+    private final class Lens extends View {
+        private final LiquidGlass.Painter painter;
+        private final FloatValueHolder x = new FloatValueHolder(), y = new FloatValueHolder();
+        private final FloatValueHolder w = new FloatValueHolder(), h = new FloatValueHolder();
+        private final FloatValueHolder r = new FloatValueHolder(), a = new FloatValueHolder();
+        private final SpringAnimation[] springs;
+        private boolean shown;
+
+        Lens(Context c) {
+            super(c);
+            painter = new LiquidGlass.Painter(dp, 0f);
+            setWillNotDraw(false);
+            FloatValueHolder[] hs = {x, y, w, h, r, a};
+            springs = new SpringAnimation[hs.length];
+            for (int i = 0; i < hs.length; i++) {
+                springs[i] = new SpringAnimation(hs[i]);
+                springs[i].setSpring(Motion.BOUNCY.force(0f));
+                springs[i].addUpdateListener((anim, v, vel) -> invalidate());
+            }
+            // Fades use the smooth spring: no bounce on opacity.
+            springs[5].setSpring(Motion.SMOOTH.force(0f));
+            springs[5].setMinimumVisibleChange(DynamicAnimation.MIN_VISIBLE_CHANGE_ALPHA);
+        }
+
+        void moveTo(float nx, float ny, float nw, float nh, float nr, boolean animate) {
+            float[] to = {nx, ny, nw, nh, nr};
+            FloatValueHolder[] hs = {x, y, w, h, r};
+            if (!shown || !animate) {
+                // First focus: appear in place instead of flying in from the last spot.
+                for (int i = 0; i < hs.length; i++) {
+                    springs[i].cancel();
+                    hs[i].setValue(to[i]);
+                }
+            } else {
+                for (int i = 0; i < hs.length; i++) springs[i].animateToFinalPosition(to[i]);
+            }
+            shown = true;
+            if (animate) springs[5].animateToFinalPosition(1f);
+            else {
+                springs[5].cancel();
+                a.setValue(1f);
+            }
+            invalidate();
+        }
+
+        void hide(boolean animate) {
+            shown = false;
+            if (animate) springs[5].animateToFinalPosition(0f);
+            else {
+                springs[5].cancel();
+                a.setValue(0f);
+            }
+            invalidate();
+        }
+
+        @Override
+        protected void onDraw(android.graphics.Canvas c) {
+            float alpha = Math.max(0f, Math.min(1f, a.getValue()));
+            if (alpha <= 0.01f) return;
+            painter.setAlpha((int) (alpha * 255));
+            float x0 = x.getValue(), y0 = y.getValue();
+            painter.draw(c, null, x0, y0, x0 + w.getValue(), y0 + h.getValue(), Math.max(0f, r.getValue()), true);
+        }
+    }
+
+    // ---- helpers -----------------------------------------------------------------------------------
+
+    private static int widthOf(int type) {
+        return type == WatchItem.CHIP ? CHIP_W : type == WatchItem.POSTER ? POSTER_W : LAND_W;
+    }
+
+    private static int heightOf(int type) {
+        return type == WatchItem.CHIP ? CHIP_H : type == WatchItem.POSTER ? POSTER_H : LAND_H;
+    }
+
+    private TextView text(int sp, int weight, int color) {
+        TextView t = new TextView(getContext());
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
+        t.setTextColor(color);
+        t.setTypeface(font);
+        t.setFontVariationSettings("'wght' " + weight);
+        t.setIncludeFontPadding(false);
+        return t;
+    }
+
+    private GradientDrawable circle(int color) {
+        GradientDrawable d = new GradientDrawable();
+        d.setShape(GradientDrawable.OVAL);
+        d.setColor(color);
+        return d;
+    }
+
+    private int px(float v) {
+        return Math.round(v * dp);
+    }
+}

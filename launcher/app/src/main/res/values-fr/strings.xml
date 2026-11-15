@@ -29,4 +29,36 @@
     <string name="move_right">Déplacer à droite</string>
     <string name="app_info">Infos sur l\'appli</string>
     <string name="dock_full">Le dock est plein. Retirez d\'abord une appli.</string>
+    <!-- Watch page -->
+    <string name="tab_watch">Regarder</string>
+    <string name="tab_apps">Apps</string>
+    <string name="watch_row_quick">Actions rapides</string>
+    <string name="watch_row_continue">Stremio · Reprendre</string>
+    <string name="watch_row_youtube">YouTube · Nouvelles vidéos</string>
+    <string name="watch_kicker_continue">Stremio · Reprendre</string>
+    <string name="watch_kicker_youtube">YouTube · Nouvelle vidéo</string>
+    <string name="watch_kicker_quick_stremio">Stremio · Action rapide</string>
+    <string name="watch_kicker_quick_youtube">YouTube · Action rapide</string>
+    <string name="watch_episode">S%1$s · É%2$s</string>
+    <string name="watch_left_min">reste %1$d min</string>
+    <string name="watch_left_hours">reste %1$d h %2$02d</string>
+    <string name="ago_now">à l\'instant</string>
+    <string name="ago_hours">il y a %1$d h</string>
+    <string name="ago_yesterday">hier</string>
+    <string name="ago_days">il y a %1$d jours</string>
+    <string name="quick_resume">Reprendre %1$s</string>
+    <string name="quick_connect">Connecter Stremio</string>
+    <string name="quick_connect_desc">Connecte-toi avec un code pour voir ici ce que tu regardes.</string>
+    <string name="quick_discover">Découvrir</string>
+    <string name="quick_discover_desc">Parcourir tes catalogues Stremio.</string>
+    <string name="quick_open">Ouvrir %1$s</string>
+    <string name="quick_latest">Dernière vidéo</string>
+    <string name="quick_open_youtube_desc">Accueil, abonnements et recherche.</string>
+    <string name="app_missing">%1$s n\'est pas installé</string>
+    <string name="link_title">Connecter Stremio</string>
+    <string name="link_wait">Récupération du code…</string>
+    <string name="link_hint">Sur ton téléphone, ouvre %1$s et valide.</string>
+    <string name="link_done">Stremio connecté</string>
+    <string name="link_failed">Le code a expiré. Ferme et réessaie.</string>
+    <string name="link_cancel">Annuler</string>
 </resources>

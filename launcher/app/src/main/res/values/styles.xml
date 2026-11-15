@@ -15,6 +15,23 @@
         <item name="android:drawablePadding">0dp</item>
     </style>
 
+    <!-- Page tab text; the glass lens behind it is drawn in code. -->
+    <style name="PageTab">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">match_parent</item>
+        <item name="android:minWidth">110dp</item>
+        <item name="android:paddingStart">20dp</item>
+        <item name="android:paddingEnd">20dp</item>
+        <item name="android:gravity">center</item>
+        <item name="android:textColor">#B3FFFFFF</item>
+        <item name="android:textSize">15sp</item>
+        <item name="android:fontFamily">@font/open_sans</item>
+        <item name="android:fontVariationSettings">\'wght\' 600</item>
+        <item name="android:focusable">true</item>
+        <item name="android:clickable">true</item>
+        <item name="android:background">@null</item>
+    </style>
+
     <style name="TopButton">
         <item name="android:layout_width">wrap_content</item>
         <item name="android:layout_height">42dp</item>

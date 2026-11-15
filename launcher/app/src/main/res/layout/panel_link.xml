@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Stremio sign-in by code, over the whole screen. Background set in code (Liquid Glass). -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#99000000"
+    android:clickable="true">
+
+    <LinearLayout
+        android:id="@+id/linkCard"
+        android:layout_width="440dp"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:gravity="center_horizontal"
+        android:orientation="vertical"
+        android:padding="32dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/link_title"
+            android:textColor="#FFFFFFFF"
+            android:textSize="22sp"
+            android:fontFamily="@font/open_sans"
+            android:fontVariationSettings="'wght' 700" />
+
+        <TextView
+            android:id="@+id/linkHint"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:gravity="center"
+            android:text="@string/link_wait"
+            android:textColor="#CCFFFFFF"
+            android:textSize="15sp"
+            android:fontFamily="@font/open_sans" />
+
+        <TextView
+            android:id="@+id/linkCode"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:text="····"
+            android:textColor="#FFFFFFFF"
+            android:textSize="54sp"
+            android:letterSpacing="0.3"
+            android:fontFamily="@font/open_sans"
+            android:fontVariationSettings="'wght' 700" />
+
+        <TextView
+            android:id="@+id/linkClose"
+            style="@style/TopButton"
+            android:layout_marginStart="0dp"
+            android:layout_marginTop="22dp"
+            android:text="@string/link_cancel" />
+    </LinearLayout>
+</FrameLayout>

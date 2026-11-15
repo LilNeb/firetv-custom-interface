@@ -26,6 +26,22 @@
     <!-- The TV's Live TV / tuner app, offered at the end of the Inputs menu. Leave empty to omit. -->
     <string name="live_tv_package" translatable="false">com.amazon.tv.livetv</string>
 
+    <!-- Watch page. Apps the quick actions and cards open. -->
+    <string name="stremio_package" translatable="false">com.stremio.one</string>
+    <string name="youtube_package" translatable="false">com.amazon.firetv.youtube</string>
+
+    <!-- Stremio catalog rows: "Row title|catalog URL". Any addon catalog works (.../catalog/{type}/{id}.json).
+         Defaults: Cinemeta's popular movies and series, no account needed. -->
+    <string-array name="stremio_catalogs">
+        <item>Stremio · Films populaires|https://v3-cinemeta.strem.io/catalog/movie/top.json</item>
+        <item>Stremio · Séries populaires|https://v3-cinemeta.strem.io/catalog/series/top.json</item>
+    </string-array>
+
+    <!-- YouTube channels for the "New videos" row, by channel id (starts with UC; on the channel page: About,
+         Share, Copy channel ID). Anything after # is a note. Read from YouTube's public RSS feeds, no account. -->
+    <string-array name="youtube_channels">
+    </string-array>
+
     <!-- Tiles per row in the grid, and the most apps the dock can hold. -->
     <integer name="columns">4</integer>
 </resources>

@@ -5,7 +5,12 @@ import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
+import android.graphics.Bitmap;
 import android.graphics.Rect;
+import android.graphics.drawable.BitmapDrawable;
+import android.graphics.drawable.Drawable;
+import android.graphics.drawable.LayerDrawable;
+import android.graphics.drawable.StateListDrawable;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
 import android.media.tv.TvContract;
@@ -53,9 +58,11 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * tvOS style home: black, a pinned dock row, an app grid, and one glass highlight that springs between tiles.
+ * tvOS style home with two pages. Watch: Stremio and YouTube (quick actions, continue watching, catalogs, new
+ * videos). Apps: the pinned dock and the app grid, with one glass highlight that springs between tiles.
+ * The tabs at the top switch pages; motion uses Apple's springs (Motion.java).
  */
-public class MainActivity extends Activity implements AppAdapter.TileListener {
+public class MainActivity extends Activity implements AppAdapter.TileListener, WatchView.Listener {
 
     /** Tiles per row and dock slots (res/values/config.xml, columns). Set in onCreate. */
     static int COLUMNS = 4;
@@ -85,6 +92,23 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private float glassTargetX, glassTargetY;
     private boolean glassShown;
     private int lastFocused = 0;
+
+    // ---- pages -----------------------------------------------------------------------------------
+    private static final int PAGE_WATCH = 0, PAGE_APPS = 1;
+    private static final long RELOAD_MS = 10 * MINUTE_MS;
+    private int page = PAGE_WATCH;
+    private WatchView watch;
+    private View pagesView, appsPage, tabs, tabIndicator, heroScrim;
+    private TextView tabWatch, tabApps;
+    private ImageView heroBgA, heroBgB;
+    private boolean showingB;
+    private String heroUrl;
+    private Bitmap heroBitmap;
+    private ContentRepository repo;
+    private long lastLoad;
+    private List<WatchItem> continueItems = new ArrayList<>();
+    private List<WatchItem.Row> loadedRows = new ArrayList<>();
+    private View linkPanel;
     private float density;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -116,6 +140,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        repo = new ContentRepository(this);
         density = getResources().getDisplayMetrics().density;
         COLUMNS = Math.max(1, getResources().getInteger(R.integer.columns));
         liveTvPkg = getString(R.string.live_tv_package).trim();
@@ -180,7 +205,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         springX = new SpringAnimation(glass, DynamicAnimation.TRANSLATION_X);
         springY = new SpringAnimation(glass, DynamicAnimation.TRANSLATION_Y);
         for (SpringAnimation s : new SpringAnimation[]{springX, springY}) {
-            s.setSpring(new SpringForce().setStiffness(260f).setDampingRatio(0.58f));
+            // Liquid Glass: Apple's bouncy spring.
+            s.setSpring(Motion.BOUNCY.force(0f));
         }
 
         View btnInputs = findViewById(R.id.btnInputs);
@@ -202,12 +228,13 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                 showHomeScreenMenu(v);
                 return true;
             }
-            if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT && v.getId() == R.id.btnInputs) return true;
             return keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && v.getId() == R.id.btnSettings;
         };
         btnInputs.setOnKeyListener(pillKeys);
         btnWifi.setOnKeyListener(pillKeys);
         btnSettings.setOnKeyListener(pillKeys);
+        for (View b : new View[]{btnInputs, btnWifi, btnSettings}) b.setBackground(pillBackground(21));
+        setUpPages();
 
         // Hide the glass when focus leaves the tiles.
         getWindow().getDecorView().getViewTreeObserver().addOnGlobalFocusChangeListener((oldF, newF) -> {
@@ -237,9 +264,17 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         ConnectivityManager cm = getSystemService(ConnectivityManager.class);
         if (cm != null) cm.registerDefaultNetworkCallback(networkCallback);
 
-        // Return to the tile we left from, or the first one.
+        if (System.currentTimeMillis() - lastLoad > RELOAD_MS) loadWatch();
+        setPage(page, false);
+        // Return to where we left from: the Watch page, or the tile on the Apps page.
         grid.post(() -> {
             View focused = getCurrentFocus();
+            if (page == PAGE_WATCH) {
+                if (focused == null || focused == grid || grid.findContainingViewHolder(focused) != null) {
+                    watch.requestFocus();
+                }
+                return;
+            }
             if (focused != null && grid.findContainingViewHolder(focused) != null) return;
             focusTile(lastFocused);
         });
@@ -255,7 +290,18 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
 
     @Override
     public void onBackPressed() {
-        // Home screen: Back goes nowhere.
+        // Home screen: Back closes the Stremio sign-in, then returns to the first card or the Watch page.
+        if (linkPanel != null) {
+            closeLink();
+            return;
+        }
+        if (page == PAGE_APPS) {
+            setPage(PAGE_WATCH, true);
+            watch.requestFocus();
+            return;
+        }
+        if (watch.hasFocus()) watch.resetToStart();
+        else watch.requestFocus();
     }
 
     // ---- glass highlight -------------------------------------------------------------------------
@@ -332,14 +378,14 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             float lift = d == 0 ? DOCK_LIFT_DP : d == 1 ? DOCK_NEIGHBOUR_LIFT_DP : 0f;
             card.setPivotX(card.getWidth() / 2f);
             card.setPivotY(card.getHeight());
-            card.animate().scaleX(s).scaleY(s).translationY(-lift * density)
-                    .setDuration(220).setInterpolator(new DecelerateInterpolator()).start();
+            Motion.scale(card, s, Motion.SNAPPY);
+            Motion.to(card, DynamicAnimation.TRANSLATION_Y, -lift * density, Motion.SNAPPY);
             // The shadow grows from the same point (the icon's bottom centre) so it stays under the icon.
             View shadow = item.findViewById(R.id.shadow);
             shadow.setPivotX(shadow.getWidth() / 2f);
             shadow.setPivotY(card.getBottom() - shadow.getTop());
-            shadow.animate().scaleX(s).scaleY(s).translationY(-lift * density)
-                    .setDuration(220).setInterpolator(new DecelerateInterpolator()).start();
+            Motion.scale(shadow, s, Motion.SNAPPY);
+            Motion.to(shadow, DynamicAnimation.TRANSLATION_Y, -lift * density, Motion.SNAPPY);
         }
     }
 
@@ -580,11 +626,13 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         bgRes = res;
         if (first) {
             bgPhoto.setImageResource(res);
+            if (heroBitmap == null || page == PAGE_APPS) Backdrop.set(photoBitmap());
             return;
         }
         // Fade through black so the swap isn't a jump cut.
         bgPhoto.animate().alpha(0f).setDuration(600).withEndAction(() -> {
             bgPhoto.setImageResource(res);
+            if (heroBitmap == null || page == PAGE_APPS) Backdrop.set(photoBitmap());
             bgPhoto.animate().alpha(1f).setDuration(900);
         });
     }
@@ -632,6 +680,325 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         SpannableString text = new SpannableString("\u25CF  " + label);
         text.setSpan(new ForegroundColorSpan(alertColor), 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         btnWifi.setText(text);
+    }
+
+    // ---- pages -----------------------------------------------------------------------------------
+
+    private void setUpPages() {
+        watch = findViewById(R.id.watch);
+        watch.setListener(this);
+        pagesView = findViewById(R.id.pages);
+        appsPage = findViewById(R.id.appsPage);
+        tabs = findViewById(R.id.tabs);
+        tabIndicator = findViewById(R.id.tabIndicator);
+        tabWatch = findViewById(R.id.tabWatch);
+        tabApps = findViewById(R.id.tabApps);
+        heroBgA = findViewById(R.id.heroBgA);
+        heroBgB = findViewById(R.id.heroBgB);
+        heroScrim = findViewById(R.id.heroScrim);
+        tabs.setBackground(new LiquidGlass.GlassDrawable(density, 26 * density, 1f));
+        // The page marker: a brighter glass lens under the current tab.
+        GradientDrawable tint = new GradientDrawable();
+        tint.setColor(0x38FFFFFF);
+        tint.setCornerRadius(21 * density);
+        tabIndicator.setBackground(new LayerDrawable(new Drawable[]{
+                tint, new LiquidGlass.GlassDrawable(density, 21 * density, 1f)}));
+
+        TextView[] tabViews = {tabWatch, tabApps};
+        for (int i = 0; i < tabViews.length; i++) {
+            final int p = i;
+            TextView t = tabViews[i];
+            // tvOS: focusing a tab shows its page; OK or Down goes into it.
+            t.setOnFocusChangeListener((v, has) -> {
+                Motion.scale(v, has ? 1.06f : 1f, Motion.SNAPPY);
+                updateTabText();
+                if (has && page != p) setPage(p, true);
+            });
+            t.setOnClickListener(v -> enterPage(p));
+            t.setOnKeyListener((v, keyCode, event) -> {
+                if (event.getAction() != KeyEvent.ACTION_DOWN) return false;
+                if (keyCode == KeyEvent.KEYCODE_DPAD_UP) return true;
+                if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+                    enterPage(p);
+                    return true;
+                }
+                return keyCode == KeyEvent.KEYCODE_DPAD_LEFT && p == PAGE_WATCH;
+            });
+        }
+        tabs.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> placeIndicator(false));
+        pagesView.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> setPage(page, false));
+    }
+
+    private void enterPage(int p) {
+        setPage(p, true);
+        if (p == PAGE_WATCH) watch.requestFocus();
+        else focusTile(Math.max(0, Math.min(lastFocused, adapter.getItemCount() - 1)));
+    }
+
+    private void setPage(int p, boolean animate) {
+        page = p;
+        float w = pagesView.getWidth() > 0 ? pagesView.getWidth() : getResources().getDisplayMetrics().widthPixels;
+        float watchX = p == PAGE_WATCH ? 0f : -w * 0.35f, appsX = p == PAGE_APPS ? 0f : w * 0.35f;
+        float watchA = p == PAGE_WATCH ? 1f : 0f, appsA = p == PAGE_APPS ? 1f : 0f;
+        if (animate) {
+            Motion.to(watch, DynamicAnimation.TRANSLATION_X, watchX, Motion.SMOOTH);
+            Motion.to(appsPage, DynamicAnimation.TRANSLATION_X, appsX, Motion.SMOOTH);
+            Motion.to(watch, DynamicAnimation.ALPHA, watchA, Motion.SMOOTH);
+            Motion.to(appsPage, DynamicAnimation.ALPHA, appsA, Motion.SMOOTH);
+        } else {
+            Motion.set(watch, DynamicAnimation.TRANSLATION_X, watchX);
+            Motion.set(appsPage, DynamicAnimation.TRANSLATION_X, appsX);
+            Motion.set(watch, DynamicAnimation.ALPHA, watchA);
+            Motion.set(appsPage, DynamicAnimation.ALPHA, appsA);
+        }
+        watch.setFocusable(p == PAGE_WATCH);
+        grid.setDescendantFocusability(p == PAGE_APPS
+                ? ViewGroup.FOCUS_AFTER_DESCENDANTS : ViewGroup.FOCUS_BLOCK_DESCENDANTS);
+        int down = p == PAGE_WATCH ? R.id.watch : R.id.grid;
+        tabWatch.setNextFocusDownId(down);
+        tabApps.setNextFocusDownId(down);
+        for (int id : new int[]{R.id.btnInputs, R.id.btnWifi, R.id.btnSettings}) findViewById(id).setNextFocusDownId(down);
+        if (p == PAGE_WATCH) {
+            hideGlass();
+            hideHero();
+        }
+        showHeroBackdrop(p == PAGE_WATCH && heroBitmap != null, animate);
+        placeIndicator(animate);
+        updateTabText();
+    }
+
+    private void placeIndicator(boolean animate) {
+        TextView t = page == PAGE_WATCH ? tabWatch : tabApps;
+        if (t.getWidth() == 0) return;
+        ViewGroup.LayoutParams lp = tabIndicator.getLayoutParams();
+        if (lp.width != t.getWidth()) {
+            lp.width = t.getWidth();
+            tabIndicator.setLayoutParams(lp);
+        }
+        float x = t.getLeft();
+        if (animate) Motion.to(tabIndicator, DynamicAnimation.TRANSLATION_X, x, Motion.BOUNCY);
+        else Motion.set(tabIndicator, DynamicAnimation.TRANSLATION_X, x);
+    }
+
+    private void updateTabText() {
+        tabWatch.setTextColor(page == PAGE_WATCH || tabWatch.hasFocus() ? Color.WHITE : 0xB3FFFFFF);
+        tabApps.setTextColor(page == PAGE_APPS || tabApps.hasFocus() ? Color.WHITE : 0xB3FFFFFF);
+    }
+
+    /** Top-bar pill: Liquid Glass at rest, solid white when focused (tvOS). */
+    private Drawable pillBackground(float radiusDp) {
+        StateListDrawable d = new StateListDrawable();
+        GradientDrawable on = new GradientDrawable();
+        on.setColor(0xF5FFFFFF);
+        on.setCornerRadius(radiusDp * density);
+        d.addState(new int[]{android.R.attr.state_focused}, on);
+        d.addState(new int[]{}, new LiquidGlass.GlassDrawable(density, radiusDp * density, 1f));
+        return d;
+    }
+
+    // ---- Watch page --------------------------------------------------------------------------------
+
+    private void loadWatch() {
+        lastLoad = System.currentTimeMillis();
+        if (loadedRows.isEmpty() && continueItems.isEmpty()) watch.setRows(buildRows());
+        repo.load((cont, rows) -> {
+            continueItems = cont;
+            loadedRows = rows;
+            watch.setRows(buildRows());
+        });
+    }
+
+    private List<WatchItem.Row> buildRows() {
+        List<WatchItem.Row> out = new ArrayList<>();
+        WatchItem.Row quick = new WatchItem.Row(getString(R.string.watch_row_quick), Color.WHITE);
+        String stremio = getString(R.string.stremio_package), youtube = getString(R.string.youtube_package);
+
+        if (!continueItems.isEmpty()) {
+            WatchItem first = continueItems.get(0);
+            WatchItem c = chip(WatchItem.STREMIO, getString(R.string.quick_resume, first.title), R.drawable.ic_play);
+            c.intent = first.intent;
+            c.kicker = getString(R.string.watch_kicker_quick_stremio);
+            quick.items.add(c);
+        } else if (!repo.signedIn()) {
+            WatchItem c = chip(WatchItem.STREMIO, getString(R.string.quick_connect), R.drawable.ic_link);
+            c.kicker = getString(R.string.watch_kicker_quick_stremio);
+            c.description = getString(R.string.quick_connect_desc);
+            c.action = this::showLink;
+            quick.items.add(c);
+        }
+        WatchItem discover = chip(WatchItem.STREMIO, getString(R.string.quick_discover), R.drawable.ic_compass);
+        discover.intent = new Intent(Intent.ACTION_VIEW, Uri.parse("stremio:///discover")).setPackage(stremio);
+        discover.kicker = getString(R.string.watch_kicker_quick_stremio);
+        discover.description = getString(R.string.quick_discover_desc);
+        quick.items.add(discover);
+        WatchItem openSt = chip(WatchItem.STREMIO, getString(R.string.quick_open, "Stremio"), R.drawable.ic_open);
+        openSt.intent = getPackageManager().getLeanbackLaunchIntentForPackage(stremio);
+        openSt.kicker = getString(R.string.watch_kicker_quick_stremio);
+        quick.items.add(openSt);
+
+        WatchItem.Row yt = null;
+        for (WatchItem.Row r : loadedRows) if (r.dotColor == ContentRepository.YOUTUBE_COLOR) yt = r;
+        if (yt != null && !yt.items.isEmpty()) {
+            WatchItem latest = yt.items.get(0);
+            WatchItem c = chip(WatchItem.YOUTUBE, getString(R.string.quick_latest), R.drawable.ic_play);
+            c.intent = latest.intent;
+            c.kicker = getString(R.string.watch_kicker_quick_youtube);
+            quick.items.add(c);
+        }
+        WatchItem openYt = chip(WatchItem.YOUTUBE, getString(R.string.quick_open, "YouTube"), R.drawable.ic_open);
+        openYt.intent = getPackageManager().getLeanbackLaunchIntentForPackage(youtube);
+        openYt.kicker = getString(R.string.watch_kicker_quick_youtube);
+        openYt.description = getString(R.string.quick_open_youtube_desc);
+        quick.items.add(openYt);
+        out.add(quick);
+
+        if (!continueItems.isEmpty()) {
+            WatchItem.Row cont = new WatchItem.Row(getString(R.string.watch_row_continue), ContentRepository.STREMIO_COLOR);
+            cont.items.addAll(continueItems);
+            out.add(cont);
+        }
+        out.addAll(loadedRows);
+        return out;
+    }
+
+    private WatchItem chip(String app, String title, int icon) {
+        WatchItem c = new WatchItem(WatchItem.CHIP, app);
+        c.title = title;
+        c.iconRes = icon;
+        return c;
+    }
+
+    @Override
+    public void onOpen(WatchItem item) {
+        if (item.action != null) {
+            item.action.run();
+            return;
+        }
+        String pkg = getString(WatchItem.YOUTUBE.equals(item.app) ? R.string.youtube_package : R.string.stremio_package);
+        if (item.intent != null) {
+            Intent i = new Intent(item.intent).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            try {
+                startActivity(i);
+                return;
+            } catch (ActivityNotFoundException | SecurityException ignored) {
+                // The app doesn't take this link: open the app itself instead.
+            }
+        }
+        Intent launch = getPackageManager().getLeanbackLaunchIntentForPackage(pkg);
+        if (launch == null) launch = getPackageManager().getLaunchIntentForPackage(pkg);
+        if (launch != null) open(launch);
+        else Toast.makeText(this, getString(R.string.app_missing, pkg), Toast.LENGTH_SHORT).show();
+    }
+
+    @Override
+    public void onExitUp() {
+        tabWatch.requestFocus();
+    }
+
+    @Override
+    public void onBackdrop(String url) {
+        if (url == null) {
+            heroUrl = null;
+            heroBitmap = null;
+            showHeroBackdrop(false, true);
+            Backdrop.set(photoBitmap());
+            return;
+        }
+        if (url.equals(heroUrl)) return;
+        heroUrl = url;
+        int w = Math.min(1280, getResources().getDisplayMetrics().widthPixels);
+        ImageLoader.get(url, w, b -> {
+            if (!url.equals(heroUrl)) return;
+            heroBitmap = b;
+            if (page != PAGE_WATCH) {
+                (showingB ? heroBgB : heroBgA).setImageBitmap(b);
+                return;
+            }
+            // heroBgB sits above heroBgA. New picture into B: fade B in. Into A: put it under B, fade B out.
+            if (!showingB) {
+                heroBgB.setImageBitmap(b);
+                Motion.set(heroBgB, DynamicAnimation.ALPHA, 0f);
+                Motion.set(heroBgA, DynamicAnimation.ALPHA, heroBgA.getDrawable() != null ? heroBgA.getAlpha() : 0f);
+                Motion.to(heroBgB, DynamicAnimation.ALPHA, 1f, Motion.SLOW);
+                showingB = true;
+            } else {
+                heroBgA.setImageBitmap(b);
+                Motion.set(heroBgA, DynamicAnimation.ALPHA, 1f);
+                Motion.to(heroBgB, DynamicAnimation.ALPHA, 0f, Motion.SLOW);
+                showingB = false;
+            }
+            Motion.to(heroScrim, DynamicAnimation.ALPHA, 1f, Motion.SLOW);
+            Backdrop.set(b);
+        });
+    }
+
+    private void showHeroBackdrop(boolean show, boolean animate) {
+        float a = show ? 1f : 0f;
+        View[] layers = {showingB ? heroBgB : heroBgA, heroScrim};
+        for (View v : layers) {
+            if (animate) Motion.to(v, DynamicAnimation.ALPHA, a, Motion.SLOW);
+            else Motion.set(v, DynamicAnimation.ALPHA, a);
+        }
+        if (!show && showingB) {
+            if (animate) Motion.to(heroBgA, DynamicAnimation.ALPHA, 0f, Motion.SLOW);
+            else Motion.set(heroBgA, DynamicAnimation.ALPHA, 0f);
+        }
+        Backdrop.set(show && heroBitmap != null ? heroBitmap : photoBitmap());
+    }
+
+    private Bitmap photoBitmap() {
+        Drawable d = bgPhoto.getDrawable();
+        return d instanceof BitmapDrawable ? ((BitmapDrawable) d).getBitmap() : null;
+    }
+
+    // ---- Stremio sign-in -----------------------------------------------------------------------------
+
+    /** Stremio's sign-in by code: a glass panel with the code and the link to open on a phone. */
+    private void showLink() {
+        if (linkPanel != null) return;
+        View panel = getLayoutInflater().inflate(R.layout.panel_link, root, false);
+        panel.findViewById(R.id.linkCard).setBackground(new LiquidGlass.GlassDrawable(density, 28 * density, 1f));
+        TextView code = panel.findViewById(R.id.linkCode);
+        TextView hint = panel.findViewById(R.id.linkHint);
+        root.addView(panel);
+        linkPanel = panel;
+        panel.setAlpha(0f);
+        panel.setScaleX(0.94f);
+        panel.setScaleY(0.94f);
+        Motion.to(panel, DynamicAnimation.ALPHA, 1f, Motion.SMOOTH);
+        Motion.scale(panel, 1f, Motion.SNAPPY);
+        View close = panel.findViewById(R.id.linkClose);
+        close.setBackground(pillBackground(21));
+        close.setOnClickListener(v -> closeLink());
+        close.requestFocus();
+        repo.startLink(new ContentRepository.LinkCallback() {
+            @Override
+            public void onCode(String c, String link) {
+                code.setText(c);
+                hint.setText(getString(R.string.link_hint, link.replaceFirst("^https?://", "")));
+            }
+
+            @Override
+            public void onSignedIn() {
+                closeLink();
+                Toast.makeText(MainActivity.this, R.string.link_done, Toast.LENGTH_SHORT).show();
+                loadWatch();
+            }
+
+            @Override
+            public void onFailed() {
+                hint.setText(R.string.link_failed);
+            }
+        });
+    }
+
+    private void closeLink() {
+        if (linkPanel == null) return;
+        repo.cancelLink();
+        View p = linkPanel;
+        linkPanel = null;
+        root.removeView(p);
+        watch.requestFocus();
     }
 
     private void open(Intent i) {

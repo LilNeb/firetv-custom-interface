@@ -13,11 +13,13 @@ android {
 
     defaultConfig {
         resValue 'string', 'user_name', localProps.getProperty('tvhome.userName', '')
+        // Optional Stremio auth key (tvhome.stremioAuthKey=...), else sign in on the TV with a code.
+        resValue 'string', 'stremio_auth_key', localProps.getProperty('tvhome.stremioAuthKey', '')
         applicationId 'com.gathin.tvhome'
         minSdk 26
         targetSdk 29
-        versionCode 2
-        versionName '2.0'
+        versionCode 3
+        versionName '3.0'
     }
 
     buildTypes {

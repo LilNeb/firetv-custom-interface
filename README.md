@@ -22,6 +22,26 @@ echo "sdk.dir=/opt/homebrew/share/android-commandlinetools" > local.properties  
 **Installer ou mettre à jour** (débogage ADB activé sur le stick) : `FIRE_TV=<ip du stick> scripts/fire-tv/installer.sh`.
 **Revenir à l'accueil Amazon** : `FIRE_TV=<ip du stick> scripts/fire-tv/annuler.sh`.
 
+### Page « Regarder » (Stremio + YouTube)
+
+L'accueil a maintenant deux pages, qu'on change avec les onglets en haut (flèche haut, puis gauche/droite) :
+
+- **Regarder** : actions rapides (reprendre le dernier contenu Stremio, Découvrir, ouvrir Stremio, dernière vidéo
+  YouTube, ouvrir YouTube), puis les rangées *Stremio · Reprendre*, *YouTube · Nouvelles vidéos* et les catalogues
+  Stremio (films et séries populaires de Cinemeta par défaut). OK ouvre directement la fiche dans Stremio
+  (`stremio:///detail/...`) ou la vidéo dans YouTube.
+- **Apps** : le dock et la grille d'applis d'avant.
+
+Réglages dans `launcher/app/src/main/res/values/config.xml` : `stremio_catalogs` (n'importe quel catalogue d'addon)
+et `youtube_channels` (identifiants de chaînes en `UC…`, lus par les flux RSS publics de YouTube, sans compte).
+La rangée *Reprendre* lit la bibliothèque du compte Stremio (API non officielle) : choisir **Connecter Stremio**
+sur la télé et valider le code sur son téléphone, ou mettre `tvhome.stremioAuthKey=…` dans `launcher/local.properties`.
+
+Animations : les ressorts officiels de SwiftUI (smooth, snappy, bouncy) recréés avec `SpringForce` (`Motion.java`).
+Matière : Liquid Glass dessiné (`LiquidGlass.java`). Fire OS 8 étant Android 11, il n'y a pas de flou système ;
+le verre échantillonne le fond du launcher lui-même (`Backdrop.java`) et la lentille de focus glisse d'une carte
+à l'autre avec le ressort *bouncy*.
+
 ---
 
 # fire-tv-cleanup
