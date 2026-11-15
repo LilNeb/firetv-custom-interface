@@ -77,7 +77,12 @@ final class Motion {
     /** Jumps a property to a value, cancelling any spring on it. */
     static void set(View v, DynamicAnimation.ViewProperty prop, float value) {
         SpringAnimation a = (SpringAnimation) v.getTag(keyFor(prop));
-        if (a != null) a.cancel();
+        if (a != null) {
+            // A cancelled spring keeps the target it was retargeted to while running (androidx keeps it pending)
+            // and would head back there on its next start: drop it, the next to() makes a fresh one.
+            a.cancel();
+            v.setTag(keyFor(prop), null);
+        }
         if (prop == DynamicAnimation.ALPHA) v.setAlpha(value);
         else if (prop == DynamicAnimation.SCALE_X) v.setScaleX(value);
         else if (prop == DynamicAnimation.SCALE_Y) v.setScaleY(value);
