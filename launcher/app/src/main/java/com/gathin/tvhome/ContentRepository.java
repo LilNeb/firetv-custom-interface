@@ -61,12 +61,14 @@ final class ContentRepository {
     private static final String PREF_AUTH = "stremio_auth_key";
 
     private final Context ctx;
+    private final YouTube youtube;
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private final Handler main = new Handler(Looper.getMainLooper());
     private volatile boolean linkCancelled;
 
     ContentRepository(Context ctx) {
         this.ctx = ctx.getApplicationContext();
+        this.youtube = new YouTube(ctx);
     }
 
     // ---- account -----------------------------------------------------------------------------------
@@ -154,6 +156,8 @@ final class ContentRepository {
                 }
             }
             if (yt != null) rows.add(0, yt);
+            // YouTube accounts (home, Watch later, Vic's playlist) right after Stremio's Continue watching.
+            rows.addAll(0, youtube.rows());
             main.post(() -> cb.onLoaded(cont, rows));
         });
     }

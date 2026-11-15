@@ -54,4 +54,10 @@
     <string name="link_cancel">Cancel</string>
     <string name="watch_row_accounts">Accounts</string>
     <string name="watch_kicker_accounts">Accounts</string>
+    <string name="yt_connect">Add a YouTube account</string>
+    <string name="yt_connect_desc">Sign in with a code to see your home feed and Watch later here.</string>
+    <string name="yt_link_title">Connect YouTube</string>
+    <string name="yt_link_hint">On your phone or computer, open %1$s, sign in to the YouTube account to add and type this code.</string>
+    <string name="yt_row_home">Home</string>
+    <string name="yt_row_later">Watch later</string>
 </resources>

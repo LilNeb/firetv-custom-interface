@@ -54,4 +54,10 @@
     <string name="link_cancel">Annuler</string>
     <string name="watch_row_accounts">Comptes</string>
     <string name="watch_kicker_accounts">Comptes</string>
+    <string name="yt_connect">Ajouter un compte YouTube</string>
+    <string name="yt_connect_desc">Connecte-toi avec un code pour voir ici ton accueil et À regarder plus tard.</string>
+    <string name="yt_link_title">Connecter YouTube</string>
+    <string name="yt_link_hint">Sur ton téléphone ou ton ordinateur, ouvre %1$s, connecte-toi au compte YouTube à ajouter et tape ce code.</string>
+    <string name="yt_row_home">Accueil</string>
+    <string name="yt_row_later">À regarder plus tard</string>
 </resources>

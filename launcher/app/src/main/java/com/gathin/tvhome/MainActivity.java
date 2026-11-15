@@ -104,6 +104,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
     private String heroUrl;
     private Bitmap heroBitmap;
     private ContentRepository repo;
+    private YouTube youtube;
+    private static final int YOUTUBE_ACCOUNTS = 2;
     private long lastLoad;
     private List<WatchItem> continueItems = new ArrayList<>();
     private List<WatchItem.Row> loadedRows = new ArrayList<>();
@@ -140,6 +142,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         repo = new ContentRepository(this);
+        youtube = new YouTube(this);
         density = getResources().getDisplayMetrics().density;
         COLUMNS = Math.max(1, getResources().getInteger(R.integer.columns));
         liveTvPkg = getString(R.string.live_tv_package).trim();
@@ -868,15 +871,22 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
     private List<WatchItem.Row> buildRows() {
         List<WatchItem.Row> out = new ArrayList<>();
         // Sign-in buttons only while an account is missing; no other buttons on this page.
+        WatchItem.Row accounts = new WatchItem.Row(getString(R.string.watch_row_accounts), Color.WHITE);
         if (!repo.signedIn()) {
-            WatchItem.Row accounts = new WatchItem.Row(getString(R.string.watch_row_accounts), Color.WHITE);
             WatchItem c = chip(WatchItem.STREMIO, getString(R.string.quick_connect), R.drawable.ic_link);
             c.kicker = getString(R.string.watch_kicker_accounts);
             c.description = getString(R.string.quick_connect_desc);
             c.action = this::showLink;
             accounts.items.add(c);
-            out.add(accounts);
         }
+        if (youtube.accounts().size() < YOUTUBE_ACCOUNTS) {
+            WatchItem c = chip(WatchItem.YOUTUBE, getString(R.string.yt_connect), R.drawable.ic_link);
+            c.kicker = getString(R.string.watch_kicker_accounts);
+            c.description = getString(R.string.yt_connect_desc);
+            c.action = () -> showLink(true);
+            accounts.items.add(c);
+        }
+        if (!accounts.items.isEmpty()) out.add(accounts);
 
         if (!continueItems.isEmpty()) {
             WatchItem.Row cont = new WatchItem.Row(getString(R.string.watch_row_continue), ContentRepository.STREMIO_COLOR);
@@ -942,6 +952,11 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
 
     /** Stremio's sign-in by code: a panel with the QR code, the code and the link to open on a phone. */
     private void showLink() {
+        showLink(false);
+    }
+
+    /** Sign-in panel: Stremio (QR code) or a YouTube account (code to type at google.com/device). */
+    private void showLink(boolean yt) {
         if (linkPanel != null) return;
         View panel = getLayoutInflater().inflate(R.layout.panel_link, root, false);
         GradientDrawable card = new GradientDrawable();
@@ -951,6 +966,11 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
         ImageView qr = panel.findViewById(R.id.linkQr);
         TextView code = panel.findViewById(R.id.linkCode);
         TextView hint = panel.findViewById(R.id.linkHint);
+        if (yt) {
+            ((TextView) panel.findViewById(R.id.linkTitle)).setText(R.string.yt_link_title);
+            qr.setVisibility(View.GONE);
+            code.setLetterSpacing(0.08f);   // Google's codes are 12 characters: keep them on one line
+        }
         root.addView(panel);
         linkPanel = panel;
         // Modal: from the centre, never from nothing (scale 0.96 + fade), 220 ms ease-out; it leaves faster.
@@ -965,12 +985,17 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
                 || keyCode == KeyEvent.KEYCODE_DPAD_DOWN || keyCode == KeyEvent.KEYCODE_DPAD_LEFT
                 || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT);
         close.requestFocus();
-        repo.startLink(new ContentRepository.LinkCallback() {
+        ContentRepository.LinkCallback cb = new ContentRepository.LinkCallback() {
             @Override
             public void onCode(String c, String link, String qrUrl) {
                 code.setText(c);
+                String shortLink = link.replaceFirst("^https?://(www\\.)?", "");
+                if (yt) {
+                    hint.setText(getString(R.string.yt_link_hint, shortLink));
+                    return;
+                }
                 ImageLoader.into(qr, qrUrl, (int) (200 * density));
-                hint.setText(getString(R.string.link_hint, link.replaceFirst("^https?://", "")));
+                hint.setText(getString(R.string.link_hint, shortLink));
             }
 
             @Override
@@ -984,12 +1009,15 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
             public void onFailed() {
                 hint.setText(R.string.link_failed);
             }
-        });
+        };
+        if (yt) youtube.startLink(cb);
+        else repo.startLink(cb);
     }
 
     private void closeLink() {
         if (linkPanel == null) return;
         repo.cancelLink();
+        youtube.cancelLink();
         View p = linkPanel;
         linkPanel = null;
         watch.requestFocus();
