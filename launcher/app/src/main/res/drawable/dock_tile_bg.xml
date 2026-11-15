@@ -2,4 +2,6 @@
 <!-- Graphite face for apps without square dock art: their own icon sits centred on it. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
     <gradient android:angle="270" android:startColor="#FF58585E" android:endColor="#FF28282C" />
+    <!-- Same rounding as the artwork and the focus ring: 22.5 % of the 56 dp tile (AppAdapter.CORNER_RATIO). -->
+    <corners android:radius="12.6dp" />
 </shape>
