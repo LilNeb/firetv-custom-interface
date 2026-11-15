@@ -948,11 +948,11 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
     }
 
     @Override
-    public void onBackdrop(String url) {
+    public void onBackdrop(String url, boolean animate) {
         if (url == null) {
             heroUrl = null;
             heroBitmap = null;
-            showBackground(currentBackground(), true);
+            showBackground(currentBackground(), animate);
             return;
         }
         if (url.equals(heroUrl)) return;
@@ -960,7 +960,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
         ImageLoader.get(url, ImageLoader.BACKDROP_W, b -> {
             if (!url.equals(heroUrl)) return;
             heroBitmap = b;
-            showBackground(currentBackground(), true);
+            showBackground(currentBackground(), animate);
         });
     }
 

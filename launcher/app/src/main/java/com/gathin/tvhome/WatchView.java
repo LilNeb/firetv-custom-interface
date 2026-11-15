@@ -39,7 +39,7 @@ public class WatchView extends FrameLayout {
         void onExitUp();
 
         /** The focused card's backdrop, or null. Debounced. */
-        void onBackdrop(String url);
+        void onBackdrop(String url, boolean animate);
     }
 
     // Sizes in dp. The page is about 960 x 420 dp on a 1080p Fire TV.
@@ -72,18 +72,21 @@ public class WatchView extends FrameLayout {
     private final List<String> tabNames = new ArrayList<>();
     private int tab;
     private final LinearLayout tabsView;
+    /** Each tab's row views, kept while the rows don't change. */
+    private final java.util.Map<String, List<RowViews>> built = new java.util.HashMap<>();
     private final List<RowViews> rowViews = new ArrayList<>();
     private int row, lastRow = -1;
     private int[] cols = new int[0];
     private WatchItem heroItem;
     private String pendingBackdrop;
+    private boolean backdropAnimate;
     private boolean pressed;
 
     private static final class RowViews {
         View root;
         LinearLayout track;
         final List<CardViews> cards = new ArrayList<>();
-        int top;
+        int top, bottom;
         float targetTx = Float.NaN;
         float alpha = Float.NaN;
     }
@@ -191,7 +194,9 @@ public class WatchView extends FrameLayout {
             if (!tabNames.contains(tabName(r))) tabNames.add(tabName(r));
         }
         tab = Math.max(0, tabNames.indexOf(current));
+        built.clear();
         showTab();
+        schedulePrebuild();
     }
 
     private static String tabName(WatchItem.Row r) {
@@ -205,11 +210,9 @@ public class WatchView extends FrameLayout {
         tab = to;
         row = 0;
         cols = new int[0];
+        // No slide or fade of the rows: a frequent action, and fading 60 cards costs this GPU 16 ms a frame.
+        // The backdrop and the hero already cross-fade to the new tab.
         showTab();
-        // The new rows slide in from the side the button points to: a short ease-out, no exit (frequent action).
-        rowsView.setAlpha(0f);
-        rowsView.setTranslationX(delta * 40 * dp);
-        rowsView.animate().alpha(1f).translationX(0f).setDuration(220).setInterpolator(Motion.EASE_OUT).start();
         return true;
     }
 
@@ -250,11 +253,44 @@ public class WatchView extends FrameLayout {
 
     // ---- building ----------------------------------------------------------------------------------
 
+    /** Shows a tab's rows, built once: building them takes the stick 300-650 ms, a visible freeze. */
     private void build() {
+        String name = tabNames.isEmpty() ? "" : tabNames.get(tab);
+        List<RowViews> list = built.get(name);
+        if (list == null) {
+            list = buildViews(rows);
+            built.put(name, list);
+        }
         rowsView.removeAllViews();
         rowViews.clear();
+        rowViews.addAll(list);
+        for (RowViews rv : list) rowsView.addView(rv.root);
+        // Full height: as wrap_content the rows would be squeezed into what's left under the hero.
+        rowsView.getLayoutParams().height = px(list.isEmpty() ? 0 : list.get(list.size() - 1).bottom);
+        rowsView.requestLayout();
+    }
+
+    /** The other tabs are built while the remote rests, one at a time, so a tab change never waits for them. */
+    private final Runnable prebuild = () -> {
+        for (String name : tabNames) {
+            if (built.containsKey(name)) continue;
+            List<WatchItem.Row> rs = new ArrayList<>();
+            for (WatchItem.Row r : allRows) if (tabName(r).equals(name)) rs.add(r);
+            built.put(name, buildViews(rs));
+            schedulePrebuild();
+            return;
+        }
+    };
+
+    private void schedulePrebuild() {
+        handler.removeCallbacks(prebuild);
+        if (built.size() < tabNames.size()) handler.postDelayed(prebuild, 1500);
+    }
+
+    private List<RowViews> buildViews(List<WatchItem.Row> rs) {
+        List<RowViews> out = new ArrayList<>();
         int top = 0;
-        for (WatchItem.Row r : rows) {
+        for (WatchItem.Row r : rs) {
             RowViews rv = new RowViews();
             // Cards don't overlap, so fading the row needs no offscreen layer (a full-width layer costs a frame).
             LinearLayout box = new LinearLayout(getContext()) {
@@ -295,16 +331,15 @@ public class WatchView extends FrameLayout {
             box.addView(track, new LinearLayout.LayoutParams(-2, px(h)));
             LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(-1, -2);
             blp.bottomMargin = px(ROW_SPACING);
-            rowsView.addView(box, blp);
+            box.setLayoutParams(blp);
             rv.root = box;
             rv.track = track;
             rv.top = top;
             top += ROW_HEADER + h + ROW_SPACING;
-            rowViews.add(rv);
+            rv.bottom = top;
+            out.add(rv);
         }
-        // Full height: as wrap_content the rows would be squeezed into what's left under the hero.
-        rowsView.getLayoutParams().height = px(top);
-        rowsView.requestLayout();
+        return out;
     }
 
     private CardViews card(WatchItem item) {
@@ -539,6 +574,8 @@ public class WatchView extends FrameLayout {
         // Backdrop: at once when it is already loaded (the usual case, see prefetch), otherwise after a short
         // pause so scrolling fast doesn't download every picture.
         pendingBackdrop = shown.backdropUrl;
+        // A tab change swaps the backdrop at once: cross-fading two full-screen pictures costs this GPU 22 ms a frame.
+        backdropAnimate = animate;
         handler.removeCallbacks(backdrop);
         if (pendingBackdrop == null || ImageLoader.has(pendingBackdrop, ImageLoader.BACKDROP_W)) backdrop.run();
         else handler.postDelayed(backdrop, 150);
@@ -564,7 +601,7 @@ public class WatchView extends FrameLayout {
     }
 
     private final Runnable backdrop = () -> {
-        if (listener != null) listener.onBackdrop(pendingBackdrop);
+        if (listener != null) listener.onBackdrop(pendingBackdrop, backdropAnimate);
     };
 
     /** A quick action that stands for a card ("Resume") shows that card in the hero. */
@@ -582,6 +619,7 @@ public class WatchView extends FrameLayout {
 
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
+        schedulePrebuild();   // not while the remote is in use
         if (rows.isEmpty()) return super.onKeyDown(keyCode, event);
         switch (keyCode) {
             case KeyEvent.KEYCODE_DPAD_LEFT:
