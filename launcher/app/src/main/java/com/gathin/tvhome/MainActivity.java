@@ -71,6 +71,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
     private RecyclerView grid;
     private FrameLayout root;
     private GlassView glass;
+    private PopupWindow openPopup;   // the menu on screen, so Home can close it
     private TextView heroName;
     private View dockDot;
     // macOS dock magnification: focused icon and its neighbours grow from their bottom edge and lift.
@@ -78,7 +79,11 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
     private static final float DOCK_NEIGHBOUR = 1.10f;
     private static final float DOCK_LIFT_DP = 10f;
     private static final float DOCK_NEIGHBOUR_LIFT_DP = 4f;
-    private boolean heroShown, resumed;
+    private boolean heroShown;
+    // True from launching an app until we are back: Home then keeps your place (tvOS), otherwise it resets.
+    private boolean leftForApp;
+    // Set while onResume rebuilds the grid: the stray focus Android hands to the first tab must not switch pages.
+    private boolean restoring;
     private TextView greeting;
     private ImageView bgBack, bgFront;
     private Bitmap photo, shownBg;
@@ -250,12 +255,13 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
     @Override
     protected void onResume() {
         super.onResume();
-        resumed = true;
+        leftForApp = false;
         glassShown = false;
         glass.setAlpha(0f);
         heroShown = false;
         heroName.setAlpha(0f);
         dockDot.setAlpha(0f);
+        restoring = true;
         adapter.reload();
         updateGreeting();
         updateBackground();
@@ -268,6 +274,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
         setPage(page, false);
         // Return to where we left from: the Watch page, or the tile on the Apps page.
         grid.post(() -> {
+            restoring = false;
             View focused = getCurrentFocus();
             if (page == PAGE_WATCH) {
                 if (focused == null || focused == grid || focused == tabWatch || focused == tabApps
@@ -284,7 +291,6 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
     @Override
     protected void onPause() {
         super.onPause();
-        resumed = false;
         handler.removeCallbacks(minuteTick);
         ConnectivityManager cm = getSystemService(ConnectivityManager.class);
         if (cm != null) cm.unregisterNetworkCallback(networkCallback);
@@ -317,11 +323,21 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
         tabApps.requestFocus();
     }
 
+    @Override
+    public void startActivity(Intent intent, Bundle options) {
+        leftForApp = true;
+        super.startActivity(intent, options);
+    }
+
     /** Home pressed while the home screen is already in front: back to the start, like the TV button on tvOS. */
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
-        if (!resumed || linkPanel != null) return;
+        // Home on Fire TV shows Amazon's home for a moment (we pause), then the redirect brings us back here.
+        if (leftForApp) return;
+        // Home always lands on the start of Regarder, whatever is open.
+        if (openPopup != null) openPopup.dismiss();
+        if (linkPanel != null) closeLink();
         setPage(PAGE_WATCH, true);
         watch.resetToStart();
         watch.requestFocus();
@@ -497,6 +513,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
         LinearLayout rows = panel.findViewById(R.id.rows);
         int width = (int) (220 * density);
         final PopupWindow popup = new PopupWindow(panel, width, ViewGroup.LayoutParams.WRAP_CONTENT, true);
+        openPopup = popup;
         popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));   // needed for Back to dismiss
         popup.setOutsideTouchable(true);
         popup.setAnimationStyle(R.style.PopupFade);   // enter is animated in code; exit fades (120 ms)
@@ -549,6 +566,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
         LinearLayout rows = panel.findViewById(R.id.rows);
         int width = (int) (290 * density);
         final PopupWindow popup = new PopupWindow(panel, width, ViewGroup.LayoutParams.WRAP_CONTENT, true);
+        openPopup = popup;
         popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         popup.setOutsideTouchable(true);
         popup.setAnimationStyle(R.style.PopupFade);   // enter is animated in code; exit fades (120 ms)
@@ -750,7 +768,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
             t.setOnFocusChangeListener((v, has) -> {
                 Motion.scale(v, has ? 1.06f : 1f, Motion.SNAPPY);
                 updateTabText();
-                if (has && page != p) setPage(p, true);
+                if (has && page != p && !restoring) setPage(p, true);
             });
             t.setOnClickListener(v -> enterPage(p));
             t.setOnKeyListener((v, keyCode, event) -> {
@@ -1028,6 +1046,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
         // Compact: as wide as the Inputs pill (a touch wider so "HDMI 1" fits), hanging right below it.
         int width = Math.max(anchor.getWidth(), (int) (150 * density));
         final PopupWindow popup = new PopupWindow(panel, width, ViewGroup.LayoutParams.WRAP_CONTENT, true);
+        openPopup = popup;
         popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));   // needed for Back to dismiss
         popup.setOutsideTouchable(true);
         popup.setAnimationStyle(R.style.PopupFade);   // enter is animated in code; exit fades (120 ms)
