@@ -32,13 +32,10 @@
     <!-- Watch page -->
     <string name="tab_watch">Watch</string>
     <string name="tab_apps">Apps</string>
-    <string name="watch_row_quick">Quick actions</string>
     <string name="watch_row_continue">Stremio · Continue watching</string>
     <string name="watch_row_youtube">YouTube · New videos</string>
     <string name="watch_kicker_continue">Stremio · Continue watching</string>
     <string name="watch_kicker_youtube">YouTube · New video</string>
-    <string name="watch_kicker_quick_stremio">Stremio · Quick action</string>
-    <string name="watch_kicker_quick_youtube">YouTube · Quick action</string>
     <string name="watch_episode">S%1$s · E%2$s</string>
     <string name="watch_left_min">%1$d min left</string>
     <string name="watch_left_hours">%1$d h %2$02d left</string>
@@ -46,14 +43,8 @@
     <string name="ago_hours">%1$d h ago</string>
     <string name="ago_yesterday">yesterday</string>
     <string name="ago_days">%1$d days ago</string>
-    <string name="quick_resume">Resume %1$s</string>
     <string name="quick_connect">Connect Stremio</string>
     <string name="quick_connect_desc">Sign in with a code to see what you are watching here.</string>
-    <string name="quick_discover">Discover</string>
-    <string name="quick_discover_desc">Browse your Stremio catalogs.</string>
-    <string name="quick_open">Open %1$s</string>
-    <string name="quick_latest">Latest video</string>
-    <string name="quick_open_youtube_desc">Home, subscriptions and search.</string>
     <string name="app_missing">%1$s is not installed</string>
     <string name="link_title">Connect Stremio</string>
     <string name="link_wait">Getting a code…</string>
@@ -61,4 +52,6 @@
     <string name="link_done">Stremio connected</string>
     <string name="link_failed">The code expired. Close and try again.</string>
     <string name="link_cancel">Cancel</string>
+    <string name="watch_row_accounts">Accounts</string>
+    <string name="watch_kicker_accounts">Accounts</string>
 </resources>

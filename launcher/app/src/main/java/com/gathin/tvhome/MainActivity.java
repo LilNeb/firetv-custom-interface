@@ -867,47 +867,16 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
 
     private List<WatchItem.Row> buildRows() {
         List<WatchItem.Row> out = new ArrayList<>();
-        WatchItem.Row quick = new WatchItem.Row(getString(R.string.watch_row_quick), Color.WHITE);
-        String stremio = getString(R.string.stremio_package), youtube = getString(R.string.youtube_package);
-
-        if (!continueItems.isEmpty()) {
-            WatchItem first = continueItems.get(0);
-            WatchItem c = chip(WatchItem.STREMIO, getString(R.string.quick_resume, first.title), R.drawable.ic_play);
-            c.intent = first.intent;
-            c.kicker = getString(R.string.watch_kicker_quick_stremio);
-            quick.items.add(c);
-        } else if (!repo.signedIn()) {
+        // Sign-in buttons only while an account is missing; no other buttons on this page.
+        if (!repo.signedIn()) {
+            WatchItem.Row accounts = new WatchItem.Row(getString(R.string.watch_row_accounts), Color.WHITE);
             WatchItem c = chip(WatchItem.STREMIO, getString(R.string.quick_connect), R.drawable.ic_link);
-            c.kicker = getString(R.string.watch_kicker_quick_stremio);
+            c.kicker = getString(R.string.watch_kicker_accounts);
             c.description = getString(R.string.quick_connect_desc);
             c.action = this::showLink;
-            quick.items.add(c);
+            accounts.items.add(c);
+            out.add(accounts);
         }
-        WatchItem discover = chip(WatchItem.STREMIO, getString(R.string.quick_discover), R.drawable.ic_compass);
-        discover.intent = new Intent(Intent.ACTION_VIEW, Uri.parse("stremio:///discover")).setPackage(stremio);
-        discover.kicker = getString(R.string.watch_kicker_quick_stremio);
-        discover.description = getString(R.string.quick_discover_desc);
-        quick.items.add(discover);
-        WatchItem openSt = chip(WatchItem.STREMIO, getString(R.string.quick_open, "Stremio"), R.drawable.ic_open);
-        openSt.intent = getPackageManager().getLeanbackLaunchIntentForPackage(stremio);
-        openSt.kicker = getString(R.string.watch_kicker_quick_stremio);
-        quick.items.add(openSt);
-
-        WatchItem.Row yt = null;
-        for (WatchItem.Row r : loadedRows) if (r.dotColor == ContentRepository.YOUTUBE_COLOR) yt = r;
-        if (yt != null && !yt.items.isEmpty()) {
-            WatchItem latest = yt.items.get(0);
-            WatchItem c = chip(WatchItem.YOUTUBE, getString(R.string.quick_latest), R.drawable.ic_play);
-            c.intent = latest.intent;
-            c.kicker = getString(R.string.watch_kicker_quick_youtube);
-            quick.items.add(c);
-        }
-        WatchItem openYt = chip(WatchItem.YOUTUBE, getString(R.string.quick_open, "YouTube"), R.drawable.ic_open);
-        openYt.intent = getPackageManager().getLeanbackLaunchIntentForPackage(youtube);
-        openYt.kicker = getString(R.string.watch_kicker_quick_youtube);
-        openYt.description = getString(R.string.quick_open_youtube_desc);
-        quick.items.add(openYt);
-        out.add(quick);
 
         if (!continueItems.isEmpty()) {
             WatchItem.Row cont = new WatchItem.Row(getString(R.string.watch_row_continue), ContentRepository.STREMIO_COLOR);
