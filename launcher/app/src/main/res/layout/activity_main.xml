@@ -2,46 +2,24 @@
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/root"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="#FF000000">
+    android:layout_height="match_parent">
 
-    <!-- Time-of-day photo, swapped in code. -->
+    <!-- Background: one picture at rest (scrim baked in, see MainActivity.showBackground); the front view only
+         holds the next picture while it fades in. -->
     <ImageView
-        android:id="@+id/bgPhoto"
+        android:id="@+id/bgBack"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:scaleType="centerCrop"
         android:importantForAccessibility="no" />
 
-    <!-- Watch page: the focused card's backdrop, two layers that crossfade. -->
     <ImageView
-        android:id="@+id/heroBgA"
+        android:id="@+id/bgFront"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:scaleType="centerCrop"
         android:alpha="0"
         android:importantForAccessibility="no" />
-
-    <ImageView
-        android:id="@+id/heroBgB"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:scaleType="centerCrop"
-        android:alpha="0"
-        android:importantForAccessibility="no" />
-
-    <View
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:background="@drawable/bg_scrim" />
-
-    <!-- Keeps the hero text readable over a bright backdrop: dark on the left and at the bottom. -->
-    <View
-        android:id="@+id/heroScrim"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:alpha="0"
-        android:background="@drawable/hero_scrim" />
 
     <!-- Ambient glow in the colour of the focused dock app. -->
     <View

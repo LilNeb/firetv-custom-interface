@@ -28,6 +28,12 @@ final class Motion {
     /** Ambience: backgrounds and long crossfades. */
     static final Spec SLOW = new Spec(1.0f, 0f);
 
+    /** Strong ease-out (Emil Kowalski's): starts at once, settles softly. For fades that answer a key press. */
+    static final android.view.animation.Interpolator EASE_OUT =
+            new android.view.animation.PathInterpolator(0.23f, 1f, 0.32f, 1f);
+    /** Crossfade of the background picture: under 300 ms so it keeps up with the focus. */
+    static final long FADE_MS = 240;
+
     static final class Spec {
         final float stiffness;
         final float dampingRatio;

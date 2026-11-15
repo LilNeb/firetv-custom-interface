@@ -6,6 +6,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Rect;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
@@ -83,7 +84,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
     private int ambientColor;
     private boolean heroShown;
     private TextView greeting;
-    private ImageView bgPhoto;
+    private ImageView bgBack, bgFront;
+    private Bitmap photo, shownBg;
     private int bgRes;
     private TextView btnWifi;
     private SpringAnimation springX, springY;
@@ -96,10 +98,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
     private static final long RELOAD_MS = 10 * MINUTE_MS;
     private int page = PAGE_WATCH;
     private WatchView watch;
-    private View pagesView, appsPage, tabs, tabIndicator, heroScrim;
+    private View pagesView, appsPage, tabs, tabIndicator;
     private TextView tabWatch, tabApps;
-    private ImageView heroBgA, heroBgB;
-    private boolean showingB;
     private String heroUrl;
     private Bitmap heroBitmap;
     private ContentRepository repo;
@@ -157,7 +157,12 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
         ambient.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) ->
                 ambientGlow.setGradientRadius((r - l) * 0.62f));
         greeting = findViewById(R.id.greeting);
-        bgPhoto = findViewById(R.id.bgPhoto);
+        bgBack = findViewById(R.id.bgBack);
+        bgFront = findViewById(R.id.bgFront);
+        // The background picture covers the window: no need to paint the window's own background under it.
+        getWindow().setBackgroundDrawable(null);
+        // Scrims are painted into the backdrops once, off the main thread (see showBackground).
+        ImageLoader.backdropScrims = new Drawable[]{getDrawable(R.drawable.bg_scrim), getDrawable(R.drawable.hero_scrim)};
         btnWifi = findViewById(R.id.btnWifi);
 
         grid = findViewById(R.id.grid);
@@ -624,15 +629,45 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
         if (res == bgRes) return;
         boolean first = bgRes == 0;
         bgRes = res;
-        if (first) {
-            bgPhoto.setImageResource(res);
+        Drawable scrim = getDrawable(R.drawable.bg_scrim);
+        new Thread(() -> {
+            BitmapFactory.Options o = new BitmapFactory.Options();
+            o.inSampleSize = 2;  // 960 x 540 is plenty for a photo under a scrim, and a quarter of the texture
+            Bitmap b = ImageLoader.bake(BitmapFactory.decodeResource(getResources(), res, o), scrim);
+            handler.post(() -> {
+                photo = b;
+                if (currentBackground() == photo) showBackground(photo, !first);
+            });
+        }).start();
+    }
+
+    // ---- background ----------------------------------------------------------------------------------
+    // The Fire TV Stick's GPU fills about two 1080p layers per frame at 60 fps, so: one picture at rest (scrims
+    // baked in) and a second view only while two pictures crossfade.
+
+    private Bitmap currentBackground() {
+        return page == PAGE_WATCH && heroBitmap != null ? heroBitmap : photo;
+    }
+
+    private void showBackground(Bitmap b, boolean animate) {
+        if (b == null || b == shownBg) return;
+        shownBg = b;
+        bgFront.animate().cancel();
+        if (!animate) {
+            bgBack.setImageBitmap(b);
+            bgFront.setImageDrawable(null);
+            bgFront.setAlpha(0f);
             return;
         }
-        // Fade through black so the swap isn't a jump cut.
-        bgPhoto.animate().alpha(0f).setDuration(600).withEndAction(() -> {
-            bgPhoto.setImageResource(res);
-            bgPhoto.animate().alpha(1f).setDuration(900);
-        });
+        // Interrupted fade: keep underneath whichever picture was mostly visible.
+        if (bgFront.getDrawable() != null && bgFront.getAlpha() > 0.5f) bgBack.setImageDrawable(bgFront.getDrawable());
+        bgFront.setImageBitmap(b);
+        bgFront.setAlpha(0f);
+        bgFront.animate().alpha(1f).setDuration(Motion.FADE_MS).setInterpolator(Motion.EASE_OUT).withEndAction(() -> {
+            bgBack.setImageBitmap(b);
+            bgFront.setImageDrawable(null);
+            bgFront.setAlpha(0f);
+        }).start();
     }
 
     /** Shows the Wi-Fi network name on the button when we can read it, otherwise the connection type. */
@@ -691,9 +726,6 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
         tabIndicator = findViewById(R.id.tabIndicator);
         tabWatch = findViewById(R.id.tabWatch);
         tabApps = findViewById(R.id.tabApps);
-        heroBgA = findViewById(R.id.heroBgA);
-        heroBgB = findViewById(R.id.heroBgB);
-        heroScrim = findViewById(R.id.heroScrim);
         // tvOS tab bar: a translucent track; the current tab sits on a grey pill that turns white when focused.
         GradientDrawable track = new GradientDrawable();
         track.setColor(0x24FFFFFF);
@@ -762,7 +794,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
             hideGlass();
             hideHero();
         }
-        showHeroBackdrop(p == PAGE_WATCH && heroBitmap != null, animate);
+        showBackground(currentBackground(), animate);
         placeIndicator(animate);
         updateTabText();
     }
@@ -896,7 +928,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
         if (url == null) {
             heroUrl = null;
             heroBitmap = null;
-            showHeroBackdrop(false, true);
+            showBackground(currentBackground(), true);
             return;
         }
         if (url.equals(heroUrl)) return;
@@ -904,43 +936,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
         ImageLoader.get(url, ImageLoader.BACKDROP_W, b -> {
             if (!url.equals(heroUrl)) return;
             heroBitmap = b;
-            if (page != PAGE_WATCH) {
-                (showingB ? heroBgB : heroBgA).setImageBitmap(b);
-                return;
-            }
-            // heroBgB sits above heroBgA. New picture into B: fade B in. Into A: put it under B, fade B out.
-            if (!showingB) {
-                heroBgB.setImageBitmap(b);
-                Motion.set(heroBgB, DynamicAnimation.ALPHA, 0f);
-                Motion.set(heroBgA, DynamicAnimation.ALPHA, heroBgA.getDrawable() != null ? heroBgA.getAlpha() : 0f);
-                Motion.to(heroBgB, DynamicAnimation.ALPHA, 1f, Motion.SMOOTH);
-                showingB = true;
-            } else {
-                heroBgA.setImageBitmap(b);
-                Motion.set(heroBgA, DynamicAnimation.ALPHA, 1f);
-                Motion.to(heroBgB, DynamicAnimation.ALPHA, 0f, Motion.SMOOTH);
-                showingB = false;
-            }
-            Motion.to(heroScrim, DynamicAnimation.ALPHA, 1f, Motion.SMOOTH);
+            showBackground(currentBackground(), true);
         });
-    }
-
-    private void showHeroBackdrop(boolean show, boolean animate) {
-        float a = show ? 1f : 0f;
-        View[] layers = {showingB ? heroBgB : heroBgA, heroScrim};
-        for (View v : layers) {
-            if (animate) Motion.to(v, DynamicAnimation.ALPHA, a, Motion.SLOW);
-            else Motion.set(v, DynamicAnimation.ALPHA, a);
-        }
-        if (!show && showingB) {
-            if (animate) Motion.to(heroBgA, DynamicAnimation.ALPHA, 0f, Motion.SLOW);
-            else Motion.set(heroBgA, DynamicAnimation.ALPHA, 0f);
-        }
-    }
-
-    private Bitmap photoBitmap() {
-        Drawable d = bgPhoto.getDrawable();
-        return d instanceof BitmapDrawable ? ((BitmapDrawable) d).getBitmap() : null;
     }
 
     // ---- Stremio sign-in -----------------------------------------------------------------------------

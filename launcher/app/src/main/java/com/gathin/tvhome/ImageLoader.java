@@ -39,6 +39,30 @@ final class ImageLoader {
     /** Width the Watch page backdrops are decoded at; shared so prefetch and display hit the same cache entry. */
     static final int BACKDROP_W = 1280;
 
+    /** Scrims painted into every backdrop (BACKDROP_W) once, so the screen shows one full-screen layer, not three. */
+    static volatile android.graphics.drawable.Drawable[] backdropScrims;
+
+    /** Returns a copy of src with the drawables painted over it. Safe off the main thread. */
+    static Bitmap bake(Bitmap src, android.graphics.drawable.Drawable... scrims) {
+        if (src == null) return null;
+        Bitmap out = Bitmap.createBitmap(src.getWidth(), src.getHeight(), Bitmap.Config.ARGB_8888);
+        android.graphics.Canvas c = new android.graphics.Canvas(out);
+        c.drawBitmap(src, 0, 0, null);
+        synchronized (ImageLoader.class) {
+            for (android.graphics.drawable.Drawable d : scrims) {
+                d.setBounds(0, 0, out.getWidth(), out.getHeight());
+                d.draw(c);
+            }
+        }
+        // Back to RGB_565, dithered so the scrim gradients don't band: half the texture to upload and to fill.
+        Bitmap opaque = Bitmap.createBitmap(out.getWidth(), out.getHeight(), Bitmap.Config.RGB_565);
+        android.graphics.Paint dither = new android.graphics.Paint();
+        dither.setDither(true);
+        new android.graphics.Canvas(opaque).drawBitmap(out, 0, 0, dither);
+        out.recycle();
+        return opaque;
+    }
+
     private ImageLoader() {
     }
 
@@ -89,8 +113,10 @@ final class ImageLoader {
             return;
         }
         POOL.execute(() -> {
-            Bitmap b = download(url, maxWidthPx);
-            if (b == null) return;
+            Bitmap raw = download(url, maxWidthPx);
+            if (raw == null) return;
+            android.graphics.drawable.Drawable[] scrims = backdropScrims;
+            Bitmap b = maxWidthPx == BACKDROP_W && scrims != null ? bake(raw, scrims) : raw;
             CACHE.put(key, b);
             MAIN.post(() -> cb.onLoaded(b));
         });
