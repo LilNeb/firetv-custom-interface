@@ -35,7 +35,6 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewTreeObserver;
 import android.view.animation.AnimationUtils;
-import android.view.animation.DecelerateInterpolator;
 import android.view.animation.LayoutAnimationController;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
@@ -72,7 +71,6 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
     private RecyclerView grid;
     private FrameLayout root;
     private GlassView glass;
-    private View ambient;
     private TextView heroName;
     private View dockDot;
     // macOS dock magnification: focused icon and its neighbours grow from their bottom edge and lift.
@@ -80,8 +78,6 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
     private static final float DOCK_NEIGHBOUR = 1.10f;
     private static final float DOCK_LIFT_DP = 10f;
     private static final float DOCK_NEIGHBOUR_LIFT_DP = 4f;
-    private GradientDrawable ambientGlow;
-    private int ambientColor;
     private boolean heroShown, resumed;
     private TextView greeting;
     private ImageView bgBack, bgFront;
@@ -147,15 +143,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
         glass = findViewById(R.id.glass);
         // tvOS: the focused tile lifts on its own; no outline drawn around it.
         glass.setVisibility(View.GONE);
-        ambient = findViewById(R.id.ambient);
         heroName = findViewById(R.id.heroName);
         dockDot = findViewById(R.id.dockDot);
-        ambientGlow = new GradientDrawable();
-        ambientGlow.setGradientType(GradientDrawable.RADIAL_GRADIENT);
-        ambientGlow.setGradientCenter(0.32f, 0.42f);
-        ambient.setBackground(ambientGlow);
-        ambient.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) ->
-                ambientGlow.setGradientRadius((r - l) * 0.62f));
         greeting = findViewById(R.id.greeting);
         bgBack = findViewById(R.id.bgBack);
         bgFront = findViewById(R.id.bgFront);
@@ -267,7 +256,6 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
         heroShown = false;
         heroName.setAlpha(0f);
         dockDot.setAlpha(0f);
-        ambient.setAlpha(0f);
         adapter.reload();
         updateGreeting();
         updateBackground();
@@ -433,34 +421,16 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
         heroName.setY(iconTop - 8 * density - heroName.getMeasuredHeight());
         dockDot.setX(card.exactCenterX() - dockDot.getWidth() / 2f);
         dockDot.setY(card.bottom + 3 * density);
-        heroName.animate().alpha(1f).setDuration(160).start();
-        dockDot.animate().alpha(1f).setDuration(160).start();
-        int color = adapter.ambientColorAt(position);
-        if (!heroShown) {
-            setAmbient(color);
-            ambient.animate().alpha(1f).setDuration(600).start();
-            heroShown = true;
-        } else if (color != ambientColor) {
-            ambient.animate().alpha(0.35f).setDuration(200).withEndAction(() -> {
-                setAmbient(color);
-                ambient.animate().alpha(1f).setDuration(500).start();
-            }).start();
-        }
-    }
-
-    private void setAmbient(int color) {
-        ambientColor = color;
-        int c = color & 0x00FFFFFF;
-        // Kept faint so the photo keeps its own colours (was 36% / 15%).
-        ambientGlow.setColors(new int[]{0x26000000 | c, 0x0D000000 | c, 0x00000000 | c});
+        heroName.animate().alpha(1f).setDuration(160).setInterpolator(Motion.EASE_OUT).start();
+        dockDot.animate().alpha(1f).setDuration(160).setInterpolator(Motion.EASE_OUT).start();
+        heroShown = true;
     }
 
     private void hideHero() {
         if (!heroShown) return;
         heroShown = false;
-        heroName.animate().alpha(0f).setDuration(160).start();
-        dockDot.animate().alpha(0f).setDuration(160).start();
-        ambient.animate().alpha(0f).setDuration(300).start();
+        heroName.animate().alpha(0f).setDuration(120).setInterpolator(Motion.EASE_OUT).start();
+        dockDot.animate().alpha(0f).setDuration(120).setInterpolator(Motion.EASE_OUT).start();
         magnifyDock(-1);
     }
 
@@ -561,15 +531,15 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
         float top = docked ? r.bottom - r.height() * DOCK_MAGNIFY - DOCK_LIFT_DP * density : r.top;
         int x = (int) (r.exactCenterX() - width / 2f);
         int y = (int) (top - 12 * density - panel.getMeasuredHeight());
-        heroName.animate().alpha(0f).setDuration(120).start();
+        heroName.animate().alpha(0f).setDuration(120).setInterpolator(Motion.EASE_OUT).start();
         popup.setOnDismissListener(() -> {
-            if (adapter.isDocked(lastFocused) && heroShown) heroName.animate().alpha(1f).setDuration(160).start();
+            if (adapter.isDocked(lastFocused) && heroShown) heroName.animate().alpha(1f).setDuration(160).setInterpolator(Motion.EASE_OUT).start();
         });
         panel.setAlpha(0f);
         panel.setTranslationY(8 * density);
         popup.showAtLocation(root, Gravity.NO_GRAVITY, x, y);
         panel.animate().alpha(1f).translationY(0f).setDuration(200)
-                .setInterpolator(new DecelerateInterpolator(1.6f)).start();
+                .setInterpolator(Motion.EASE_OUT).start();
         rows.getChildAt(0).requestFocus();
     }
 
@@ -1101,11 +1071,11 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
         // Drop in: fade and unfold from the top edge.
         panel.setAlpha(0f);
         panel.setPivotY(0f);
-        panel.setScaleY(0.92f);
+        panel.setScaleY(0.96f);
         panel.setTranslationY(-8 * density);
         popup.showAsDropDown(anchor, 0, (int) (10 * density), Gravity.START);
         panel.animate().alpha(1f).scaleY(1f).translationY(0f).setDuration(220)
-                .setInterpolator(new android.view.animation.DecelerateInterpolator(1.6f)).start();
+                .setInterpolator(Motion.EASE_OUT).start();
         rows.getChildAt(0).requestFocus();
     }
 
