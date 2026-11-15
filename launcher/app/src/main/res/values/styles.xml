@@ -50,4 +50,10 @@
         <item name="android:focusable">true</item>
         <item name="android:clickable">true</item>
     </style>
+
+    <!-- Menus: no system enter animation (done in code), a short fade on exit. -->
+    <style name="PopupFade">
+        <item name="android:windowEnterAnimation">@null</item>
+        <item name="android:windowExitAnimation">@anim/popup_exit</item>
+    </style>
 </resources>

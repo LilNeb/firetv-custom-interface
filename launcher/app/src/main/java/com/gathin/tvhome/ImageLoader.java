@@ -37,7 +37,7 @@ final class ImageLoader {
             };
 
     /** Width the Watch page backdrops are decoded at; shared so prefetch and display hit the same cache entry. */
-    static final int BACKDROP_W = 1280;
+    static final int BACKDROP_W = 960;  // under a scrim, 960 px is enough; a quarter of 1080p to sample per frame
 
     /** Scrims painted into every backdrop (BACKDROP_W) once, so the screen shows one full-screen layer, not three. */
     static volatile android.graphics.drawable.Drawable[] backdropScrims;
@@ -64,6 +64,61 @@ final class ImageLoader {
     }
 
     private ImageLoader() {
+    }
+
+    /**
+     * A card's picture, ready to draw as is: centre-cropped to the card, with its scrim and rounded corners painted
+     * in once, off the main thread. The card then needs no clip and no scrim view, which cost GPU time on every
+     * frame of every animation on the Fire TV Stick.
+     */
+    static void intoCard(ImageView view, String url, int w, int h, float radius, boolean scrim) {
+        String key = url + "@" + w + "x" + h + (scrim ? "s" : "");
+        view.setTag(R.id.image_url, key);
+        Bitmap cached = url == null ? null : CACHE.get(key);
+        if (cached != null) {
+            view.setImageBitmap(cached);
+            view.setAlpha(1f);
+            return;
+        }
+        view.setImageDrawable(null);
+        view.setAlpha(0f);
+        if (url == null || url.isEmpty()) return;
+        POOL.execute(() -> {
+            Bitmap raw = download(url, w);
+            if (raw == null) return;
+            Bitmap b = shapeCard(raw, w, h, radius, scrim);
+            CACHE.put(key, b);
+            MAIN.post(() -> {
+                if (!key.equals(view.getTag(R.id.image_url))) return;
+                view.setImageBitmap(b);
+                view.animate().alpha(1f).setDuration(150).setInterpolator(Motion.EASE_OUT).start();
+            });
+        });
+    }
+
+    static Bitmap shapeCard(Bitmap src, int w, int h, float radius, boolean scrim) {
+        Bitmap out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+        android.graphics.Canvas c = new android.graphics.Canvas(out);
+        android.graphics.RectF r = new android.graphics.RectF(0, 0, w, h);
+        android.graphics.BitmapShader shader = new android.graphics.BitmapShader(src,
+                android.graphics.Shader.TileMode.CLAMP, android.graphics.Shader.TileMode.CLAMP);
+        float s = Math.max(w / (float) src.getWidth(), h / (float) src.getHeight());   // centre crop
+        android.graphics.Matrix m = new android.graphics.Matrix();
+        m.setScale(s, s);
+        m.postTranslate((w - src.getWidth() * s) / 2f, (h - src.getHeight() * s) / 2f);
+        shader.setLocalMatrix(m);
+        android.graphics.Paint p = new android.graphics.Paint(
+                android.graphics.Paint.ANTI_ALIAS_FLAG | android.graphics.Paint.FILTER_BITMAP_FLAG);
+        p.setShader(shader);
+        c.drawRoundRect(r, radius, radius, p);
+        if (scrim) {
+            // Dark at the bottom for the title, clear at the top.
+            android.graphics.Paint g = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+            g.setShader(new android.graphics.LinearGradient(0, h, 0, 0, new int[]{0xD9000000, 0x66000000, 0},
+                    null, android.graphics.Shader.TileMode.CLAMP));
+            c.drawRoundRect(r, radius, radius, g);
+        }
+        return out;
     }
 
     static boolean has(String url, int maxWidthPx) {

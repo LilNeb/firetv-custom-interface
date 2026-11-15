@@ -184,7 +184,13 @@ public class WatchView extends FrameLayout {
         int top = 0;
         for (WatchItem.Row r : rows) {
             RowViews rv = new RowViews();
-            LinearLayout box = new LinearLayout(getContext());
+            // Cards don't overlap, so fading the row needs no offscreen layer (a full-width layer costs a frame).
+            LinearLayout box = new LinearLayout(getContext()) {
+                @Override
+                public boolean hasOverlappingRendering() {
+                    return false;
+                }
+            };
             box.setOrientation(LinearLayout.VERTICAL);
             box.setClipChildren(false);
             box.setClipToPadding(false);
@@ -273,7 +279,6 @@ public class WatchView extends FrameLayout {
             bg.setCornerRadius(px(10));
             bg.setColor(0xFF1C1C22);
             card.setBackground(bg);
-            card.setClipToOutline(true);
             // Title underneath the picture, visible while it loads or if it never does.
             TextView fallback = text(item.type == WatchItem.POSTER ? 14 : 13, 700, 0xCCFFFFFF);
             fallback.setGravity(Gravity.CENTER);
@@ -281,15 +286,14 @@ public class WatchView extends FrameLayout {
             fallback.setText(item.title);
             card.addView(fallback, new LayoutParams(-1, -1));
             ImageView img = new ImageView(getContext());
-            img.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            img.setScaleType(ImageView.ScaleType.FIT_XY);
             card.addView(img, new LayoutParams(-1, -1));
-            ImageLoader.into(img, item.imageUrl, px(widthOf(item.type)) * 2);
+            // Shaped at the focused size, so the card stays sharp when it grows.
+            float k = FOCUS_SCALE;
+            ImageLoader.intoCard(img, item.imageUrl, px(widthOf(item.type) * k), px(heightOf(item.type) * k),
+                    px(10) * k, item.type == WatchItem.LANDSCAPE);
 
             if (item.type == WatchItem.LANDSCAPE) {
-                View scrim = new View(getContext());
-                scrim.setBackground(new GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP,
-                        new int[]{0xD9000000, 0x66000000, 0x00000000}));
-                card.addView(scrim, new LayoutParams(-1, -1));
                 LinearLayout texts = new LinearLayout(getContext());
                 texts.setOrientation(LinearLayout.VERTICAL);
                 texts.setPadding(px(10), 0, px(10), px(item.progress >= 0 ? 12 : 9));
@@ -411,10 +415,9 @@ public class WatchView extends FrameLayout {
         heroDesc.setVisibility(TextUtils.isEmpty(shown.description) ? View.GONE : View.VISIBLE);
         if (animate) {
             // New title rises in; the spring picks up from wherever the last one was.
-            Motion.set(heroTitle, DynamicAnimation.ALPHA, 0f);
-            Motion.set(heroTitle, DynamicAnimation.TRANSLATION_Y, 10 * dp);
-            Motion.to(heroTitle, DynamicAnimation.ALPHA, 1f, Motion.SMOOTH);
-            Motion.to(heroTitle, DynamicAnimation.TRANSLATION_Y, 0f, Motion.SMOOTH);
+            // Seen at every move: a short fade, no movement (frequent actions get the least motion).
+            heroTitle.setAlpha(0.4f);
+            heroTitle.animate().alpha(1f).setDuration(120).setInterpolator(Motion.EASE_OUT).start();
         }
         // Backdrop: at once when it is already loaded (the usual case, see prefetch), otherwise after a short
         // pause so scrolling fast doesn't download every picture.

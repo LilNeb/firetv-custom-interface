@@ -82,7 +82,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
     private static final float DOCK_NEIGHBOUR_LIFT_DP = 4f;
     private GradientDrawable ambientGlow;
     private int ambientColor;
-    private boolean heroShown;
+    private boolean heroShown, resumed;
     private TextView greeting;
     private ImageView bgBack, bgFront;
     private Bitmap photo, shownBg;
@@ -211,7 +211,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
         springY = new SpringAnimation(glass, DynamicAnimation.TRANSLATION_Y);
         for (SpringAnimation s : new SpringAnimation[]{springX, springY}) {
             // Liquid Glass: Apple's bouncy spring.
-            s.setSpring(Motion.BOUNCY.force(0f));
+            s.setSpring(Motion.SNAPPY.force(0f));
         }
 
         View btnInputs = findViewById(R.id.btnInputs);
@@ -229,6 +229,14 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
         View.OnKeyListener pillKeys = (v, keyCode, event) -> {
             if (event.getAction() != KeyEvent.ACTION_DOWN) return false;
             if (keyCode == KeyEvent.KEYCODE_DPAD_UP) return true;
+            if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+                enterPage(page);   // back to where you were on the page, not the nearest tile
+                return true;
+            }
+            if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT && v.getId() == R.id.btnInputs) {
+                tabApps.requestFocus();
+                return true;
+            }
             if (keyCode == KeyEvent.KEYCODE_MENU && v.getId() == R.id.btnSettings) {
                 showHomeScreenMenu(v);
                 return true;
@@ -253,6 +261,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
     @Override
     protected void onResume() {
         super.onResume();
+        resumed = true;
         glassShown = false;
         glass.setAlpha(0f);
         heroShown = false;
@@ -260,7 +269,6 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
         dockDot.setAlpha(0f);
         ambient.setAlpha(0f);
         adapter.reload();
-        grid.scheduleLayoutAnimation();
         updateGreeting();
         updateBackground();
         updateWifiLabel();
@@ -288,6 +296,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
     @Override
     protected void onPause() {
         super.onPause();
+        resumed = false;
         handler.removeCallbacks(minuteTick);
         ConnectivityManager cm = getSystemService(ConnectivityManager.class);
         if (cm != null) cm.unregisterNetworkCallback(networkCallback);
@@ -300,13 +309,34 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
             closeLink();
             return;
         }
-        if (page == PAGE_APPS) {
-            setPage(PAGE_WATCH, true);
-            watch.requestFocus();
+        // Back climbs one level at a time, like tvOS: content → start of the page → its tab → the Watch tab.
+        View f = getCurrentFocus();
+        if (f == tabWatch) return;
+        if (f == tabApps) {
+            tabWatch.requestFocus();
             return;
         }
-        if (watch.hasFocus()) watch.resetToStart();
-        else watch.requestFocus();
+        if (page == PAGE_WATCH) {
+            if (watch.hasFocus() && watch.resetToStart()) return;
+            tabWatch.requestFocus();
+            return;
+        }
+        int dock = adapter.dockCount();
+        if (f != null && grid.findContainingViewHolder(f) != null && lastFocused >= dock && dock > 0) {
+            focusTile(Math.min((lastFocused - dock) % COLUMNS, dock - 1));
+            return;
+        }
+        tabApps.requestFocus();
+    }
+
+    /** Home pressed while the home screen is already in front: back to the start, like the TV button on tvOS. */
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        if (!resumed || linkPanel != null) return;
+        setPage(PAGE_WATCH, true);
+        watch.resetToStart();
+        watch.requestFocus();
     }
 
     // ---- glass highlight -------------------------------------------------------------------------
@@ -448,10 +478,16 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
         int dock = adapter.dockCount();
         int target;
         if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
-            if (position < dock) return false;             // dock row: let focus move to the top bar
+            if (position < dock) {                         // dock row: up to this page's tab
+                tabApps.requestFocus();
+                return true;
+            }
             int col = (position - dock) % COLUMNS;
             if (position - dock < COLUMNS) {
-                if (dock == 0) return false;
+                if (dock == 0) {
+                    tabApps.requestFocus();
+                    return true;
+                }
                 target = Math.min(col, dock - 1);          // first grid row: up to the dock
             } else {
                 target = position - COLUMNS;
@@ -493,7 +529,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
         final PopupWindow popup = new PopupWindow(panel, width, ViewGroup.LayoutParams.WRAP_CONTENT, true);
         popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));   // needed for Back to dismiss
         popup.setOutsideTouchable(true);
-        popup.setAnimationStyle(0);
+        popup.setAnimationStyle(R.style.PopupFade);   // enter is animated in code; exit fades (120 ms)
         popup.setElevation(0f);
 
         if (docked) {
@@ -545,7 +581,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
         final PopupWindow popup = new PopupWindow(panel, width, ViewGroup.LayoutParams.WRAP_CONTENT, true);
         popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         popup.setOutsideTouchable(true);
-        popup.setAnimationStyle(0);
+        popup.setAnimationStyle(R.style.PopupFade);   // enter is animated in code; exit fades (120 ms)
         popup.setElevation(0f);
         boolean on = HomeRedirectService.isEnabled(this);
         addInputRow(rows, popup, R.drawable.ic_settings, getString(on ? R.string.use_amazon_home : R.string.use_this_home), -1, () -> {
@@ -754,6 +790,10 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
                     enterPage(p);
                     return true;
                 }
+                if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && p == PAGE_APPS) {
+                    findViewById(R.id.btnInputs).requestFocus();
+                    return true;
+                }
                 return keyCode == KeyEvent.KEYCODE_DPAD_LEFT && p == PAGE_WATCH;
             });
         }
@@ -769,20 +809,11 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
 
     private void setPage(int p, boolean animate) {
         page = p;
-        float w = pagesView.getWidth() > 0 ? pagesView.getWidth() : getResources().getDisplayMetrics().widthPixels;
-        float watchX = p == PAGE_WATCH ? 0f : -w * 0.35f, appsX = p == PAGE_APPS ? 0f : w * 0.35f;
-        float watchA = p == PAGE_WATCH ? 1f : 0f, appsA = p == PAGE_APPS ? 1f : 0f;
-        if (animate) {
-            Motion.to(watch, DynamicAnimation.TRANSLATION_X, watchX, Motion.SMOOTH);
-            Motion.to(appsPage, DynamicAnimation.TRANSLATION_X, appsX, Motion.SMOOTH);
-            Motion.to(watch, DynamicAnimation.ALPHA, watchA, Motion.SMOOTH);
-            Motion.to(appsPage, DynamicAnimation.ALPHA, appsA, Motion.SMOOTH);
-        } else {
-            Motion.set(watch, DynamicAnimation.TRANSLATION_X, watchX);
-            Motion.set(appsPage, DynamicAnimation.TRANSLATION_X, appsX);
-            Motion.set(watch, DynamicAnimation.ALPHA, watchA);
-            Motion.set(appsPage, DynamicAnimation.ALPHA, appsA);
-        }
+        // Pages swap with a short fade and a small slide in the direction of the tab (24 dp, 250 ms ease-out),
+        // each page on a GPU layer for the duration so the fade costs one composite, not a redraw per frame.
+        float shift = 24 * density;
+        slidePage(watch, p == PAGE_WATCH ? 0f : -shift, p == PAGE_WATCH ? 1f : 0f, animate);
+        slidePage(appsPage, p == PAGE_APPS ? 0f : shift, p == PAGE_APPS ? 1f : 0f, animate);
         watch.setFocusable(p == PAGE_WATCH);
         grid.setDescendantFocusability(p == PAGE_APPS
                 ? ViewGroup.FOCUS_AFTER_DESCENDANTS : ViewGroup.FOCUS_BLOCK_DESCENDANTS);
@@ -799,6 +830,16 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
         updateTabText();
     }
 
+    private void slidePage(View v, float x, float alpha, boolean animate) {
+        v.animate().cancel();
+        if (!animate || !android.animation.ValueAnimator.areAnimatorsEnabled()) {
+            v.setTranslationX(x);
+            v.setAlpha(alpha);
+            return;
+        }
+        v.animate().translationX(x).alpha(alpha).setDuration(250).setInterpolator(Motion.EASE_OUT).withLayer().start();
+    }
+
     private void placeIndicator(boolean animate) {
         TextView t = page == PAGE_WATCH ? tabWatch : tabApps;
         if (t.getWidth() == 0) return;
@@ -808,7 +849,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
             tabIndicator.setLayoutParams(lp);
         }
         float x = t.getLeft();
-        if (animate) Motion.to(tabIndicator, DynamicAnimation.TRANSLATION_X, x, Motion.BOUNCY);
+        if (animate) Motion.to(tabIndicator, DynamicAnimation.TRANSLATION_X, x, Motion.SNAPPY);
         else Motion.set(tabIndicator, DynamicAnimation.TRANSLATION_X, x);
     }
 
@@ -955,11 +996,11 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
         TextView hint = panel.findViewById(R.id.linkHint);
         root.addView(panel);
         linkPanel = panel;
+        // Modal: from the centre, never from nothing (scale 0.96 + fade), 220 ms ease-out; it leaves faster.
         panel.setAlpha(0f);
-        panel.setScaleX(0.94f);
-        panel.setScaleY(0.94f);
-        Motion.to(panel, DynamicAnimation.ALPHA, 1f, Motion.SMOOTH);
-        Motion.scale(panel, 1f, Motion.SNAPPY);
+        panel.setScaleX(0.96f);
+        panel.setScaleY(0.96f);
+        panel.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(220).setInterpolator(Motion.EASE_OUT).withLayer().start();
         View close = panel.findViewById(R.id.linkClose);
         close.setOnClickListener(v -> closeLink());
         // Modal: the arrows stay on the panel instead of moving focus to the page behind it.
@@ -994,8 +1035,9 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
         repo.cancelLink();
         View p = linkPanel;
         linkPanel = null;
-        root.removeView(p);
         watch.requestFocus();
+        p.animate().alpha(0f).scaleX(0.98f).scaleY(0.98f).setDuration(150).setInterpolator(Motion.EASE_OUT)
+                .withLayer().withEndAction(() -> root.removeView(p)).start();
     }
 
     private void open(Intent i) {
@@ -1018,7 +1060,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
         final PopupWindow popup = new PopupWindow(panel, width, ViewGroup.LayoutParams.WRAP_CONTENT, true);
         popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));   // needed for Back to dismiss
         popup.setOutsideTouchable(true);
-        popup.setAnimationStyle(0);
+        popup.setAnimationStyle(R.style.PopupFade);   // enter is animated in code; exit fades (120 ms)
         popup.setElevation(0f);
 
         TvInputManager tim = (TvInputManager) getSystemService(TV_INPUT_SERVICE);

@@ -16,7 +16,6 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewOutlineProvider;
-import android.view.animation.OvershootInterpolator;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.TextView;
@@ -344,14 +343,11 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
                 boolean inDock = owner.isDocked(getBindingAdapterPosition());
                 float s = focused ? FOCUS_SCALE : 1.0f;
                 if (!inDock) {
-                    view.animate().scaleX(s).scaleY(s)
-                            .setDuration(focused ? 260 : 180)
-                            .setInterpolator(new OvershootInterpolator(focused ? 1.6f : 0f))
-                            .start();
+                    Motion.scale(view, s, Motion.SNAPPY);
                 }
                 name.animate().alpha(focused ? 1f : 0f)
                         .translationY(focused ? density * 4f : -density * 6f)
-                        .setDuration(220).start();
+                        .setDuration(150).setInterpolator(Motion.EASE_OUT).start();
                 int pos = getBindingAdapterPosition();
                 if (focused && listener != null && pos != RecyclerView.NO_POSITION) {
                     listener.onTileFocused(pos, view);
