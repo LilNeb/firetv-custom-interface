@@ -79,7 +79,8 @@ public class WatchView extends FrameLayout {
         LinearLayout track;
         final List<CardViews> cards = new ArrayList<>();
         int top;
-        float targetTx;
+        float targetTx = Float.NaN;
+        float alpha = Float.NaN;
     }
 
     private static final class CardViews {
@@ -88,7 +89,13 @@ public class WatchView extends FrameLayout {
         /** Chips only: the white fill and the views that turn dark on it (tvOS focused button). */
         View fill;
         TextView kicker, title;
+        final Runnable dropLayer = () -> { if (card != null) card.setLayerType(View.LAYER_TYPE_NONE, null); };
         ImageView icon;
+        /** Picture cards: loaded only near the focus (see loadNearby), dropped when far. */
+        ImageView img;
+        boolean loaded;
+        /** Last focus targets, so a key press only animates the cards that change. NaN until first set. */
+        float s = Float.NaN, z = Float.NaN;
     }
 
     public WatchView(Context context, AttributeSet attrs) {
@@ -289,9 +296,7 @@ public class WatchView extends FrameLayout {
             img.setScaleType(ImageView.ScaleType.FIT_XY);
             card.addView(img, new LayoutParams(-1, -1));
             // Shaped at the focused size, so the card stays sharp when it grows.
-            float k = FOCUS_SCALE;
-            ImageLoader.intoCard(img, item.imageUrl, px(widthOf(item.type) * k), px(heightOf(item.type) * k),
-                    px(10) * k, item.type == WatchItem.LANDSCAPE);
+            cv.img = img;   // loaded by loadNearby() once the focus comes close
 
             if (item.type == WatchItem.LANDSCAPE) {
                 LinearLayout texts = new LinearLayout(getContext());
@@ -351,7 +356,15 @@ public class WatchView extends FrameLayout {
                 if (on && pressed) s *= PRESS_SCALE;
                 // tvOS: the focused card lifts towards you (scale and a deep soft shadow); nothing is drawn on it.
                 float z = on ? (cv.item.type == WatchItem.CHIP ? 8 : 20) * dp : 0f;
+                if (s == cv.s && z == cv.z) continue;   // unchanged: no spring to start (there can be 200 cards)
+                cv.s = s;
+                cv.z = z;
                 if (animate) {
+                    // Scaled text is re-rasterised at every frame of the spring; a layer scales one texture instead.
+                    View card = cv.card;
+                    if (card.getLayerType() != LAYER_TYPE_HARDWARE) card.setLayerType(LAYER_TYPE_HARDWARE, null);
+                    handler.removeCallbacks(cv.dropLayer);
+                    handler.postDelayed(cv.dropLayer, 500);
                     Motion.scale(cv.card, s, Motion.SNAPPY);
                     Motion.to(cv.card, DynamicAnimation.TRANSLATION_Z, z, Motion.SNAPPY);
                 } else {
@@ -378,11 +391,49 @@ public class WatchView extends FrameLayout {
         else Motion.set(rowsView, DynamicAnimation.TRANSLATION_Y, ty);
         for (int r = 0; r < rowViews.size(); r++) {
             float a = r < row ? 0f : 1f;
+            if (a == rowViews.get(r).alpha) continue;
+            rowViews.get(r).alpha = a;
             if (animate) Motion.to(rowViews.get(r).root, DynamicAnimation.ALPHA, a, Motion.SMOOTH);
             else Motion.set(rowViews.get(r).root, DynamicAnimation.ALPHA, a);
         }
+        loadNearby();
         updateHero(animate);
         lastRow = row;
+    }
+
+    /**
+     * Pictures for the rows around the focus only: decoding and uploading every card of every row at once (200+
+     * with the YouTube accounts) starved the GPU. Far rows give their pictures back; the cache keeps them warm.
+     */
+    private void loadNearby() {
+        float k = FOCUS_SCALE;
+        for (int r = 0; r < rowViews.size(); r++) {
+            boolean nearRow = r >= row - 1 && r <= row + 2;
+            boolean farRow = r < row - 3 || r > row + 4;
+            // Off-screen rows and cards are hidden, not just out of sight: the render thread walks every visible
+            // view on every frame, and 250 cards (with the YouTube accounts) cost it ~10 ms per frame.
+            boolean drawRow = r >= row - 1 && r <= row + 3;
+            View rowRoot = rowViews.get(r).root;
+            int rowVis = drawRow ? VISIBLE : INVISIBLE;
+            if (rowRoot.getVisibility() != rowVis) rowRoot.setVisibility(rowVis);
+            List<CardViews> cards = rowViews.get(r).cards;
+            for (int c = 0; c < cards.size(); c++) {
+                CardViews cv = cards.get(c);
+                int cardVis = drawRow && c >= cols[r] - 5 && c <= cols[r] + 6 ? VISIBLE : INVISIBLE;
+                if (cv.card.getVisibility() != cardVis) cv.card.setVisibility(cardVis);
+                if (cv.img == null) continue;
+                if (!cv.loaded && nearRow && c >= cols[r] - 2 && c <= cols[r] + 6) {
+                    cv.loaded = true;
+                    WatchItem it = cv.item;
+                    ImageLoader.intoCard(cv.img, it.imageUrl, px(widthOf(it.type) * k), px(heightOf(it.type) * k),
+                            px(10) * k, it.type == WatchItem.LANDSCAPE);
+                } else if (cv.loaded && farRow) {
+                    cv.loaded = false;
+                    cv.img.setTag(R.id.image_url, null);   // a load still in flight must not land here
+                    cv.img.setImageDrawable(null);
+                }
+            }
+        }
     }
 
     /** Keeps the focused card inside the page, with room for its focus scale. */
@@ -394,6 +445,7 @@ public class WatchView extends FrameLayout {
         float right = left + w;
         float margin = 28;
         float tx = right + margin > visible ? -(right + margin - visible) : 0f;
+        if (tx * dp == rv.targetTx) return;
         rv.targetTx = tx * dp;
         if (animate) Motion.to(rv.track, DynamicAnimation.TRANSLATION_X, tx * dp, Motion.SMOOTH);
         else Motion.set(rv.track, DynamicAnimation.TRANSLATION_X, tx * dp);
@@ -425,8 +477,12 @@ public class WatchView extends FrameLayout {
         handler.removeCallbacks(backdrop);
         if (pendingBackdrop == null || ImageLoader.has(pendingBackdrop, ImageLoader.BACKDROP_W)) backdrop.run();
         else handler.postDelayed(backdrop, 150);
-        prefetch();
+        // Neighbours once the focus has settled: decoding while the cards move steals the CPU the animation needs.
+        handler.removeCallbacks(prefetchLater);
+        handler.postDelayed(prefetchLater, 300);
     }
+
+    private final Runnable prefetchLater = this::prefetch;
 
     /** Loads the backdrops of the cards one move away, so the next focus change shows its picture at once. */
     private void prefetch() {

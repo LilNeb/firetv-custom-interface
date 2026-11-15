@@ -224,10 +224,13 @@ final class YouTube {
             for (int i = 0; ls != null && i < ls.length(); i++) {
                 List<JSONObject> items = new ArrayList<>();
                 collect(ls.optJSONObject(i), "lineItemRenderer", items);
-                StringBuilder b = new StringBuilder();
-                for (JSONObject it : items) b.append(text(it.optJSONObject("text")));
-                // "7,8 k vues · • · il y a 1 heure" → "7,8 k vues · il y a 1 heure"
-                String line = b.toString().replace(" · • · ", " · ").replaceAll("^ · ", "").trim();
+                // Items come as "7,8 k vues", "•", "il y a 1 heure": keep the words, one " · " between them.
+                List<String> parts = new ArrayList<>();
+                for (JSONObject it : items) {
+                    String part = text(it.optJSONObject("text")).replace("•", "").replaceAll("^[\\s·]+|[\\s·]+$", "");
+                    if (!part.isEmpty()) parts.add(part);
+                }
+                String line = String.join(" · ", parts);
                 if (!line.isEmpty()) lines.add(line);
             }
             w.subtitle = String.join(" · ", lines);

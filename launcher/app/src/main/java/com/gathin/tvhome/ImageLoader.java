@@ -27,7 +27,11 @@ final class ImageLoader {
     }
 
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
-    private static final ExecutorService POOL = Executors.newFixedThreadPool(3);
+    // Background priority: downloads and decodes must never take CPU from the UI and render threads.
+    private static final ExecutorService POOL = Executors.newFixedThreadPool(3, r -> new Thread(() -> {
+        android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
+        r.run();
+    }, "images"));
     private static final LruCache<String, Bitmap> CACHE =
             new LruCache<String, Bitmap>((int) Math.min(Runtime.getRuntime().maxMemory() / 6, 48L * 1024 * 1024)) {
                 @Override
@@ -87,6 +91,7 @@ final class ImageLoader {
             Bitmap raw = download(url, w);
             if (raw == null) return;
             Bitmap b = shapeCard(raw, w, h, radius, scrim);
+            raw.recycle();   // native memory: don't wait for a GC that a small Java heap rarely runs
             CACHE.put(key, b);
             MAIN.post(() -> {
                 if (!key.equals(view.getTag(R.id.image_url))) return;
@@ -172,6 +177,7 @@ final class ImageLoader {
             if (raw == null) return;
             android.graphics.drawable.Drawable[] scrims = backdropScrims;
             Bitmap b = maxWidthPx == BACKDROP_W && scrims != null ? bake(raw, scrims) : raw;
+            if (b != raw) raw.recycle();
             CACHE.put(key, b);
             MAIN.post(() -> cb.onLoaded(b));
         });
@@ -200,7 +206,15 @@ final class ImageLoader {
             o = new BitmapFactory.Options();
             o.inSampleSize = sample;
             o.inPreferredConfig = Bitmap.Config.RGB_565;
-            return BitmapFactory.decodeByteArray(data, 0, data.length, o);
+            Bitmap b = BitmapFactory.decodeByteArray(data, 0, data.length, o);
+            // Power-of-two sampling leaves a 1280 px YouTube picture at 1280: bring it down to the width asked for,
+            // or every full-screen backdrop costs 1.8x the texture and fill it needs.
+            if (b != null && b.getWidth() > maxWidthPx * 1.2f) {
+                Bitmap s = Bitmap.createScaledBitmap(b, maxWidthPx, Math.round(b.getHeight() * maxWidthPx / (float) b.getWidth()), true);
+                if (s != b) b.recycle();
+                b = s;
+            }
+            return b;
         } catch (Exception | OutOfMemoryError e) {
             return null;
         } finally {
