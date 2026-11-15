@@ -992,20 +992,30 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
         else Toast.makeText(this, getString(R.string.app_missing, pkg), Toast.LENGTH_SHORT).show();
     }
 
-    /** Rewind / fast-forward change the Watch page's tab from the top bar too. */
+    /**
+     * Rewind / fast-forward step through the top bar's tabs (Stremio, YouTube, Apps) exactly as Left / Right do on
+     * the bar; the focus stays where it was, on the bar or in the page.
+     */
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
+        boolean next = keyCode == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD || keyCode == KeyEvent.KEYCODE_MEDIA_NEXT;
+        boolean prev = keyCode == KeyEvent.KEYCODE_MEDIA_REWIND || keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS;
+        if (!next && !prev) return super.onKeyDown(keyCode, event);
+        View f = getCurrentFocus();
+        boolean onBar = f == tabApps || watchTabs.contains(f);
         if (page == PAGE_WATCH) {
-            if (keyCode == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD || keyCode == KeyEvent.KEYCODE_MEDIA_NEXT) {
-                watch.switchTab(1);
-                return true;
+            if (watch.switchTab(next ? 1 : -1)) return true;
+            if (next) {
+                // Through the bar's tab first: switching pages while the focus is in the page would drop it
+                // onto the first focusable view (the Stremio tab), which switches back.
+                tabApps.requestFocus();
+                if (!onBar) enterPage(PAGE_APPS);
             }
-            if (keyCode == KeyEvent.KEYCODE_MEDIA_REWIND || keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS) {
-                watch.switchTab(-1);
-                return true;
-            }
+        } else if (prev) {
+            watchTabs.get(watchTabs.size() - 1).requestFocus();
+            if (!onBar) enterPage(PAGE_WATCH);
         }
-        return super.onKeyDown(keyCode, event);
+        return true;
     }
 
     @Override

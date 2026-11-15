@@ -649,12 +649,11 @@ public class WatchView extends FrameLayout {
                 return true;
             case KeyEvent.KEYCODE_MEDIA_FAST_FORWARD:
             case KeyEvent.KEYCODE_MEDIA_NEXT:
-                switchTab(1);
-                return true;
+                // Past the last tab: not handled, the activity goes on to Apps like the top bar does.
+                return switchTab(1) || super.onKeyDown(keyCode, event);
             case KeyEvent.KEYCODE_MEDIA_REWIND:
             case KeyEvent.KEYCODE_MEDIA_PREVIOUS:
-                switchTab(-1);
-                return true;
+                return switchTab(-1) || super.onKeyDown(keyCode, event);
             case KeyEvent.KEYCODE_DPAD_CENTER:
             case KeyEvent.KEYCODE_ENTER:
             case KeyEvent.KEYCODE_NUMPAD_ENTER:
