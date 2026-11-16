@@ -27,14 +27,16 @@ import java.util.List;
  */
 public class PhotoDream extends DreamService {
 
-    // Stills from Nicolas's reels, as they are (portrait or square); wallpaper() lays them out for 16:9.
+    // Stills from Nicolas's reels, as they are (portrait or square); fill() crops them to the screen.
     private static final int[] PHOTOS = {
             R.drawable.bg_cat_01, R.drawable.bg_cat_02, R.drawable.bg_cat_03, R.drawable.bg_cat_04,
             R.drawable.bg_cat_05, R.drawable.bg_cat_06, R.drawable.bg_cat_07, R.drawable.bg_cat_08,
             R.drawable.bg_cat_09, R.drawable.bg_cat_10, R.drawable.bg_cat_11};
+    /** Where the cats sit in each still, as a fraction of its height: the screen shows the band around it. */
+    private static final float[] FOCUS = {0.5f, 0.55f, 0.62f, 0.38f, 0.62f, 0.4f, 0.45f, 0.52f, 0.55f, 0.42f, 0.45f};
     private static final long SLIDE_MS = 20_000;
     private static final long FADE_MS = 2_500;
-    private static final float ZOOM = 1.08f;   // reached over one slide, then the next photo takes over
+    private static final float ZOOM = 1.03f;   // reached over one slide, then the next photo takes over
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final List<Integer> order = new ArrayList<>();
@@ -67,7 +69,7 @@ public class PhotoDream extends DreamService {
         root.addView(clock);
         setContentView(root);
 
-        for (int p : PHOTOS) order.add(p);
+        for (int i = 0; i < PHOTOS.length; i++) order.add(i);
         Collections.shuffle(order);
         front.setAlpha(0f);
         back.setAlpha(0f);
@@ -87,12 +89,11 @@ public class PhotoDream extends DreamService {
 
     /** Fade the next photo in over the current one, and start its slow zoom. */
     private void showNext() {
-        int res = order.get(next);
+        int i = order.get(next);
         next = (next + 1) % order.size();
-        // Blurring a still takes a moment: build it off the main thread, then fade it in.
+        // Decoding a still takes a moment: build it off the main thread, then fade it in.
         new Thread(() -> {
-            Bitmap b = wallpaper(
-                    BitmapFactory.decodeResource(getResources(), res));
+            Bitmap b = fill(BitmapFactory.decodeResource(getResources(), PHOTOS[i]), FOCUS[i]);
             handler.post(() -> fadeIn(b));
         }).start();
     }
@@ -138,49 +139,19 @@ public class PhotoDream extends DreamService {
         return c;
     }
 
-    /**
-     * A portrait still on a 1080p screen: sharp at full height on the right, the rest filled by the same picture
-     * blurred and darkened (downscaled step by step, then stretched back), the seam faded over 200 px.
-     */
-    static Bitmap wallpaper(Bitmap src) {
+    /** The still cropped to fill the 16:9 screen, the band kept where the cats are (focus: 0 top, 1 bottom). */
+    static Bitmap fill(Bitmap src, float focus) {
         final int w = 1920, h = 1080;
-        android.graphics.Paint filter = new android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG);
-        // Cover crop of the picture, then halve until tiny: each step averages, so the result is a real blur.
-        float cover = Math.max((float) w / src.getWidth(), (float) h / src.getHeight());
-        int cw = Math.round(w / cover), ch = Math.round(h / cover);
-        int cx = (src.getWidth() - cw) / 2, cy = (src.getHeight() - ch) / 2;
-        Bitmap small = Bitmap.createBitmap(w / 4, h / 4, Bitmap.Config.ARGB_8888);
-        new Canvas(small).drawBitmap(src, new Rect(cx, cy, cx + cw, cy + ch), new Rect(0, 0, w / 4, h / 4), filter);
-        while (small.getWidth() > 60) {
-            Bitmap half = Bitmap.createScaledBitmap(small, small.getWidth() / 2, small.getHeight() / 2, true);
-            small.recycle();
-            small = half;
+        int bw = src.getWidth(), bh = Math.round(src.getWidth() * (float) h / w);
+        if (bh > src.getHeight()) {   // wider than 16:9: crop the sides instead
+            bh = src.getHeight();
+            bw = Math.round(bh * (float) w / h);
         }
-        // Grow back in doublings: one big bilinear stretch would show the small picture's pixels as blocks.
-        Bitmap soft = small;
-        while (soft.getWidth() < 480) {
-            Bitmap twice = Bitmap.createScaledBitmap(soft, soft.getWidth() * 2, soft.getHeight() * 2, true);
-            soft.recycle();
-            soft = twice;
-        }
-
+        int top = Math.max(0, Math.min(src.getHeight() - bh, Math.round(src.getHeight() * focus - bh / 2f)));
+        int left = (src.getWidth() - bw) / 2;
         Bitmap out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
-        Canvas c = new Canvas(out);
-        android.graphics.Paint dim = new android.graphics.Paint(filter);
-        dim.setColorFilter(new android.graphics.LightingColorFilter(0xFFA0A0A0, 0));   // 63 % brightness
-        c.drawBitmap(soft, null, new Rect(0, 0, w, h), dim);
-        soft.recycle();
-
-        int fw = Math.min(w, Math.round(src.getWidth() * (float) h / src.getHeight()));
-        int left = w - fw, fade = 200;
-        int layer = c.saveLayer(left, 0, w, h, null);
-        c.drawBitmap(src, null, new Rect(left, 0, w, h), filter);
-        android.graphics.Paint mask = new android.graphics.Paint();
-        mask.setShader(new android.graphics.LinearGradient(left, 0, left + fade, 0, 0x00000000, 0xFF000000,
-                android.graphics.Shader.TileMode.CLAMP));
-        mask.setXfermode(new android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_IN));
-        c.drawRect(left, 0, left + fade, h, mask);
-        c.restoreToCount(layer);
+        new Canvas(out).drawBitmap(src, new Rect(left, top, left + bw, top + bh), new Rect(0, 0, w, h),
+                new android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG));
         src.recycle();
         return out;
     }
