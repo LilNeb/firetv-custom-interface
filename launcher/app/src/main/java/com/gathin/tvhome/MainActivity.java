@@ -95,8 +95,6 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
     private TextView tabWatch, tabApps;
     /** The Watch page's tabs in the top bar (Stremio, then each YouTube account); the first is tabWatch. */
     private final List<TextView> watchTabs = new ArrayList<>();
-    private String heroUrl;
-    private Bitmap heroBitmap;
     private ContentRepository repo;
     private YouTube youtube;
     private static final int YOUTUBE_ACCOUNTS = 2;
@@ -545,7 +543,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
             R.drawable.bg_cat_01, R.drawable.bg_cat_02, R.drawable.bg_cat_03, R.drawable.bg_cat_04,
             R.drawable.bg_cat_05, R.drawable.bg_cat_06, R.drawable.bg_cat_07, R.drawable.bg_cat_08,
             R.drawable.bg_cat_09, R.drawable.bg_cat_10, R.drawable.bg_cat_11};
-    private static final long BACKGROUND_MS = 10 * 60_000L;   // a new picture every 10 minutes
+    private static final long BACKGROUND_MS = 2 * 60_000L;   // a new picture every 2 minutes
 
     private static int dayPart() {
         int hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
@@ -582,7 +580,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
     // baked in) and a second view only while two pictures crossfade.
 
     private Bitmap currentBackground() {
-        return page == PAGE_WATCH && heroBitmap != null ? heroBitmap : photo;
+        return photo;
     }
 
     private void showBackground(Bitmap b, boolean animate) {
@@ -950,19 +948,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
 
     @Override
     public void onBackdrop(String url, boolean animate) {
-        if (url == null) {
-            heroUrl = null;
-            heroBitmap = null;
-            showBackground(currentBackground(), animate);
-            return;
-        }
-        if (url.equals(heroUrl)) return;
-        heroUrl = url;
-        ImageLoader.get(url, ImageLoader.BACKDROP_W, b -> {
-            if (!url.equals(heroUrl)) return;
-            heroBitmap = b;
-            showBackground(currentBackground(), animate);
-        });
+        // The wallpaper rotation wins over the focused card's picture (Nicolas's choice): nothing to show here.
     }
 
     // ---- Stremio sign-in -----------------------------------------------------------------------------
