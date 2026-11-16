@@ -926,12 +926,31 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
 
     private void loadWatch() {
         lastLoad = System.currentTimeMillis();
-        if (loadedRows.isEmpty() && continueItems.isEmpty()) watch.setRows(buildRows());
-        repo.load((cont, rows) -> {
+        ContentRepository.Callback show = (cont, rows) -> {
             continueItems = cont;
             loadedRows = rows;
             watch.setRows(buildRows());
-        });
+        };
+        if (loadedRows.isEmpty() && continueItems.isEmpty()) {
+            watch.setRows(buildRows());
+            repo.loadCached(show);
+        }
+        repo.load((cont, rows) -> showWhenIdle(() -> show.onLoaded(cont, rows)));
+    }
+
+    /** Rebuilding the page takes the stick ~0.5 s: never while the remote is in use, wait for a pause. */
+    private void showWhenIdle(Runnable r) {
+        long wait = lastKeyAt + 2000 - android.os.SystemClock.uptimeMillis();
+        if (wait <= 0) r.run();
+        else handler.postDelayed(() -> showWhenIdle(r), wait);
+    }
+
+    private long lastKeyAt;
+
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent e) {
+        lastKeyAt = e.getEventTime();
+        return super.dispatchKeyEvent(e);
     }
 
     private List<WatchItem.Row> buildRows() {

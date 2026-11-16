@@ -63,6 +63,7 @@ final class ContentRepository {
     private final Context ctx;
     private final YouTube youtube;
     private final ExecutorService io = Executors.newSingleThreadExecutor();
+    private final ExecutorService ytIo = Executors.newSingleThreadExecutor();
     private final Handler main = new Handler(Looper.getMainLooper());
     private volatile boolean linkCancelled;
 
@@ -130,7 +131,94 @@ final class ContentRepository {
 
     // ---- loading -----------------------------------------------------------------------------------
 
+    /** The rows shown last time, from disk: the page is full at boot while the network catches up. */
+    void loadCached(Callback cb) {
+        io.execute(() -> {
+            try {
+                java.io.File f = new java.io.File(ctx.getFilesDir(), CACHE_FILE);
+                if (!f.exists()) return;
+                String json = new String(java.nio.file.Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8);
+                JSONObject o = new JSONObject(json);
+                List<WatchItem> cont = itemsFrom(o.getJSONArray("cont"));
+                List<WatchItem.Row> rows = new ArrayList<>();
+                JSONArray ra = o.getJSONArray("rows");
+                for (int i = 0; i < ra.length(); i++) {
+                    JSONObject r = ra.getJSONObject(i);
+                    WatchItem.Row row = new WatchItem.Row(r.getString("title"), r.getInt("dot"));
+                    row.group = r.optString("group", null);
+                    row.items.addAll(itemsFrom(r.getJSONArray("items")));
+                    rows.add(row);
+                }
+                lastSaved = json;
+                main.post(() -> cb.onLoaded(cont, rows));
+            } catch (Exception ignored) {
+                // A cache from an older version: the network load fills the page.
+            }
+        });
+    }
+
+    private static final String CACHE_FILE = "watch_rows.json";
+    /** Last JSON written or read, so an unchanged network result doesn't rebuild the page. */
+    private volatile String lastSaved;
+
+    /** Saves the rows; false when they are the same as last time. */
+    private boolean save(List<WatchItem> cont, List<WatchItem.Row> rows) {
+        try {
+            JSONObject o = new JSONObject();
+            o.put("cont", itemsJson(cont));
+            JSONArray ra = new JSONArray();
+            for (WatchItem.Row r : rows) {
+                JSONObject j = new JSONObject();
+                j.put("title", r.title).put("dot", r.dotColor).put("group", r.group).put("items", itemsJson(r.items));
+                ra.put(j);
+            }
+            o.put("rows", ra);
+            String json = o.toString();
+            if (json.equals(lastSaved)) return false;
+            lastSaved = json;
+            java.nio.file.Files.write(new java.io.File(ctx.getFilesDir(), CACHE_FILE).toPath(),
+                    json.getBytes(StandardCharsets.UTF_8));
+        } catch (Exception ignored) {
+            // Not cached: the next boot just waits for the network.
+        }
+        return true;
+    }
+
+    private static JSONArray itemsJson(List<WatchItem> items) throws Exception {
+        JSONArray a = new JSONArray();
+        for (WatchItem w : items) {
+            a.put(new JSONObject().put("type", w.type).put("app", w.app).put("title", w.title)
+                    .put("subtitle", w.subtitle).put("kicker", w.kicker).put("meta", w.meta)
+                    .put("description", w.description).put("image", w.imageUrl).put("backdrop", w.backdropUrl)
+                    .put("progress", w.progress)
+                    .put("intent", w.intent == null ? null : w.intent.toUri(Intent.URI_INTENT_SCHEME)));
+        }
+        return a;
+    }
+
+    private static List<WatchItem> itemsFrom(JSONArray a) throws Exception {
+        List<WatchItem> out = new ArrayList<>();
+        for (int i = 0; i < a.length(); i++) {
+            JSONObject o = a.getJSONObject(i);
+            WatchItem w = new WatchItem(o.getInt("type"), o.optString("app", null));
+            w.title = o.optString("title");
+            w.subtitle = o.optString("subtitle");
+            w.kicker = o.optString("kicker");
+            w.meta = o.optString("meta");
+            w.description = o.optString("description");
+            w.imageUrl = o.optString("image", null);
+            w.backdropUrl = o.optString("backdrop", null);
+            w.progress = (float) o.optDouble("progress", -1);
+            String in = o.optString("intent", null);
+            if (in != null) w.intent = Intent.parseUri(in, Intent.URI_INTENT_SCHEME);
+            out.add(w);
+        }
+        return out;
+    }
+
     void load(Callback cb) {
+        // YouTube's five requests run while Stremio's load: the two used to add up to ~5 s at boot.
+        java.util.concurrent.Future<List<WatchItem.Row>> ytRows = ytIo.submit(youtube::rows);
         io.execute(() -> {
             List<WatchItem> cont = new ArrayList<>();
             String key = authKey();
@@ -157,8 +245,12 @@ final class ContentRepository {
             }
             if (yt != null) rows.add(0, yt);
             // YouTube accounts (home, Watch later, Vic's playlist) right after Stremio's Continue watching.
-            rows.addAll(0, youtube.rows());
-            main.post(() -> cb.onLoaded(cont, rows));
+            try {
+                rows.addAll(0, ytRows.get());
+            } catch (Exception ignored) {
+                // No YouTube rows this time.
+            }
+            if (save(cont, rows)) main.post(() -> cb.onLoaded(cont, rows));
         });
     }
 
