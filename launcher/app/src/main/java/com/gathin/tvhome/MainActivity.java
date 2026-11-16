@@ -540,7 +540,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
     private static final int[] GREETINGS = {
             R.string.good_morning, R.string.good_afternoon, R.string.good_evening, R.string.good_night};
     // Stills from Nicolas's reels, as they are (portrait or square); wallpaper() lays them out for 16:9.
-    private static final int[] BACKGROUNDS = {
+    static final int[] BACKGROUNDS = {
             R.drawable.bg_cat_01, R.drawable.bg_cat_02, R.drawable.bg_cat_03, R.drawable.bg_cat_04,
             R.drawable.bg_cat_05, R.drawable.bg_cat_06, R.drawable.bg_cat_07, R.drawable.bg_cat_08,
             R.drawable.bg_cat_09, R.drawable.bg_cat_10, R.drawable.bg_cat_11};
@@ -594,8 +594,13 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
             small.recycle();
             small = half;
         }
-        Bitmap soft = Bitmap.createScaledBitmap(small, 240, 135, true);   // two upscales: no visible blocks
-        small.recycle();
+        // Grow back in doublings: one big bilinear stretch would show the small picture's pixels as blocks.
+        Bitmap soft = small;
+        while (soft.getWidth() < 480) {
+            Bitmap twice = Bitmap.createScaledBitmap(soft, soft.getWidth() * 2, soft.getHeight() * 2, true);
+            soft.recycle();
+            soft = twice;
+        }
 
         Bitmap out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
         Canvas c = new Canvas(out);

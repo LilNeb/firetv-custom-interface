@@ -15,7 +15,7 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * Screensaver: the Manhattan photos full screen, each slowly zooming in, crossfading every SLIDE_MS, with a
+ * Screensaver: the reel stills of the home screen's wallpaper, laid out the same way, each slowly zooming in, crossfading every SLIDE_MS, with a
  * small clock in the corner. Chosen with:
  *   settings put secure screensaver_components com.gathin.tvhome/com.gathin.tvhome.PhotoDream
  * and Amazon's back with:
@@ -23,10 +23,7 @@ import java.util.List;
  */
 public class PhotoDream extends DreamService {
 
-    private static final int[] PHOTOS = {
-            R.drawable.saver_01, R.drawable.saver_02, R.drawable.saver_03, R.drawable.saver_04,
-            R.drawable.saver_05, R.drawable.saver_06, R.drawable.saver_07, R.drawable.saver_08,
-            R.drawable.saver_09, R.drawable.saver_10, R.drawable.saver_11, R.drawable.saver_12};
+    private static final int[] PHOTOS = MainActivity.BACKGROUNDS;
     private static final long SLIDE_MS = 20_000;
     private static final long FADE_MS = 2_500;
     private static final float ZOOM = 1.08f;   // reached over one slide, then the next photo takes over
@@ -82,9 +79,19 @@ public class PhotoDream extends DreamService {
 
     /** Fade the next photo in over the current one, and start its slow zoom. */
     private void showNext() {
-        ImageView incoming = back, outgoing = front;
-        incoming.setImageResource(order.get(next));
+        int res = order.get(next);
         next = (next + 1) % order.size();
+        // Blurring a still takes a moment: build it off the main thread, then fade it in.
+        new Thread(() -> {
+            android.graphics.Bitmap b = MainActivity.wallpaper(
+                    android.graphics.BitmapFactory.decodeResource(getResources(), res));
+            handler.post(() -> fadeIn(b));
+        }).start();
+    }
+
+    private void fadeIn(android.graphics.Bitmap b) {
+        ImageView incoming = back, outgoing = front;
+        incoming.setImageBitmap(b);
         incoming.animate().cancel();
         incoming.setScaleX(1f);
         incoming.setScaleY(1f);
