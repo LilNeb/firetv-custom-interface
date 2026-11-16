@@ -6,7 +6,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Bitmap;
-import android.graphics.Canvas;
 import android.graphics.BitmapFactory;
 import android.graphics.Rect;
 import android.graphics.drawable.BitmapDrawable;
@@ -96,6 +95,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
     private TextView tabWatch, tabApps;
     /** The Watch page's tabs in the top bar (Stremio, then each YouTube account); the first is tabWatch. */
     private final List<TextView> watchTabs = new ArrayList<>();
+    private String heroUrl;
+    private Bitmap heroBitmap;
     private ContentRepository repo;
     private YouTube youtube;
     private static final int YOUTUBE_ACCOUNTS = 2;
@@ -536,15 +537,11 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
 
     // ---- top bar ---------------------------------------------------------------------------------
 
-    // Morning 5-12, afternoon 12-17, evening 17-22, night 22-5. Indexes GREETINGS.
+    // Morning 5-12, afternoon 12-17, evening 17-22, night 22-5. Indexes GREETINGS and BACKGROUNDS.
     private static final int[] GREETINGS = {
             R.string.good_morning, R.string.good_afternoon, R.string.good_evening, R.string.good_night};
-    // Stills from Nicolas's reels, as they are (portrait or square); wallpaper() lays them out for 16:9.
-    static final int[] BACKGROUNDS = {
-            R.drawable.bg_cat_01, R.drawable.bg_cat_02, R.drawable.bg_cat_03, R.drawable.bg_cat_04,
-            R.drawable.bg_cat_05, R.drawable.bg_cat_06, R.drawable.bg_cat_07, R.drawable.bg_cat_08,
-            R.drawable.bg_cat_09, R.drawable.bg_cat_10, R.drawable.bg_cat_11};
-    private static final long BACKGROUND_MS = 2 * 60_000L;   // a new picture every 2 minutes
+    private static final int[] BACKGROUNDS = {
+            R.drawable.bg_morning, R.drawable.bg_afternoon, R.drawable.bg_evening, R.drawable.bg_night};
 
     private static int dayPart() {
         int hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
@@ -562,13 +559,15 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
     }
 
     private void updateBackground() {
-        int res = BACKGROUNDS[(int) (System.currentTimeMillis() / BACKGROUND_MS % BACKGROUNDS.length)];
+        int res = BACKGROUNDS[dayPart()];
         if (res == bgRes) return;
         boolean first = bgRes == 0;
         bgRes = res;
         Drawable scrim = getDrawable(R.drawable.bg_scrim);
         new Thread(() -> {
-            Bitmap b = ImageLoader.bake(wallpaper(BitmapFactory.decodeResource(getResources(), res)), scrim);
+            BitmapFactory.Options o = new BitmapFactory.Options();
+            o.inSampleSize = 2;  // 960 x 540 is plenty for a photo under a scrim, and a quarter of the texture
+            Bitmap b = ImageLoader.bake(BitmapFactory.decodeResource(getResources(), res, o), scrim);
             handler.post(() -> {
                 photo = b;
                 if (currentBackground() == photo) showBackground(photo, !first);
@@ -576,59 +575,12 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
         }).start();
     }
 
-    /**
-     * A portrait still on a 1080p screen: sharp at full height on the right, the rest filled by the same picture
-     * blurred and darkened (downscaled step by step, then stretched back), the seam faded over 200 px.
-     */
-    static Bitmap wallpaper(Bitmap src) {
-        final int w = 1920, h = 1080;
-        android.graphics.Paint filter = new android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG);
-        // Cover crop of the picture, then halve until tiny: each step averages, so the result is a real blur.
-        float cover = Math.max((float) w / src.getWidth(), (float) h / src.getHeight());
-        int cw = Math.round(w / cover), ch = Math.round(h / cover);
-        int cx = (src.getWidth() - cw) / 2, cy = (src.getHeight() - ch) / 2;
-        Bitmap small = Bitmap.createBitmap(w / 4, h / 4, Bitmap.Config.ARGB_8888);
-        new Canvas(small).drawBitmap(src, new Rect(cx, cy, cx + cw, cy + ch), new Rect(0, 0, w / 4, h / 4), filter);
-        while (small.getWidth() > 60) {
-            Bitmap half = Bitmap.createScaledBitmap(small, small.getWidth() / 2, small.getHeight() / 2, true);
-            small.recycle();
-            small = half;
-        }
-        // Grow back in doublings: one big bilinear stretch would show the small picture's pixels as blocks.
-        Bitmap soft = small;
-        while (soft.getWidth() < 480) {
-            Bitmap twice = Bitmap.createScaledBitmap(soft, soft.getWidth() * 2, soft.getHeight() * 2, true);
-            soft.recycle();
-            soft = twice;
-        }
-
-        Bitmap out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
-        Canvas c = new Canvas(out);
-        android.graphics.Paint dim = new android.graphics.Paint(filter);
-        dim.setColorFilter(new android.graphics.LightingColorFilter(0xFFA0A0A0, 0));   // 63 % brightness
-        c.drawBitmap(soft, null, new Rect(0, 0, w, h), dim);
-        soft.recycle();
-
-        int fw = Math.min(w, Math.round(src.getWidth() * (float) h / src.getHeight()));
-        int left = w - fw, fade = 200;
-        int layer = c.saveLayer(left, 0, w, h, null);
-        c.drawBitmap(src, null, new Rect(left, 0, w, h), filter);
-        android.graphics.Paint mask = new android.graphics.Paint();
-        mask.setShader(new android.graphics.LinearGradient(left, 0, left + fade, 0, 0x00000000, 0xFF000000,
-                android.graphics.Shader.TileMode.CLAMP));
-        mask.setXfermode(new android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_IN));
-        c.drawRect(left, 0, left + fade, h, mask);
-        c.restoreToCount(layer);
-        src.recycle();
-        return out;
-    }
-
     // ---- background ----------------------------------------------------------------------------------
     // The Fire TV Stick's GPU fills about two 1080p layers per frame at 60 fps, so: one picture at rest (scrims
     // baked in) and a second view only while two pictures crossfade.
 
     private Bitmap currentBackground() {
-        return photo;
+        return page == PAGE_WATCH && heroBitmap != null ? heroBitmap : photo;
     }
 
     private void showBackground(Bitmap b, boolean animate) {
@@ -996,7 +948,19 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
 
     @Override
     public void onBackdrop(String url, boolean animate) {
-        // The wallpaper rotation wins over the focused card's picture (Nicolas's choice): nothing to show here.
+        if (url == null) {
+            heroUrl = null;
+            heroBitmap = null;
+            showBackground(currentBackground(), animate);
+            return;
+        }
+        if (url.equals(heroUrl)) return;
+        heroUrl = url;
+        ImageLoader.get(url, ImageLoader.BACKDROP_W, b -> {
+            if (!url.equals(heroUrl)) return;
+            heroBitmap = b;
+            showBackground(currentBackground(), animate);
+        });
     }
 
     // ---- Stremio sign-in -----------------------------------------------------------------------------
