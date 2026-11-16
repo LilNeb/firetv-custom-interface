@@ -410,9 +410,10 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
                     ring.setStroke(Math.round(density * 3), android.graphics.Color.WHITE);
                 }
                 view.setForeground(ring);
-                name.animate().alpha(focused ? 1f : 0f)
-                        .translationY(focused ? density * 4f : -density * 6f)
-                        .setDuration(150).setInterpolator(Motion.EASE_OUT).start();
+                // The name only fades: moving it too made every Down look like labels sliding between rows.
+                name.setTranslationY(density * 4f);
+                name.animate().alpha(focused ? 1f : 0f).setDuration(focused ? 150 : 90)
+                        .setInterpolator(Motion.EASE_OUT).start();
                 int pos = getBindingAdapterPosition();
                 if (focused && listener != null && pos != RecyclerView.NO_POSITION) {
                     listener.onTileFocused(pos, view);
