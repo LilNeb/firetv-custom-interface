@@ -6,6 +6,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Bitmap;
+import android.graphics.Canvas;
 import android.graphics.BitmapFactory;
 import android.graphics.Rect;
 import android.graphics.drawable.BitmapDrawable;
@@ -538,7 +539,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
     // Morning 5-12, afternoon 12-17, evening 17-22, night 22-5. Indexes GREETINGS.
     private static final int[] GREETINGS = {
             R.string.good_morning, R.string.good_afternoon, R.string.good_evening, R.string.good_night};
-    // Stills from Nicolas's reels for 16:9: the sharp portrait frame on the right, the rest in its own dark tone.
+    // Stills from Nicolas's reels, as they are (portrait or square); wallpaper() lays them out for 16:9.
     private static final int[] BACKGROUNDS = {
             R.drawable.bg_cat_01, R.drawable.bg_cat_02, R.drawable.bg_cat_03, R.drawable.bg_cat_04,
             R.drawable.bg_cat_05, R.drawable.bg_cat_06, R.drawable.bg_cat_07, R.drawable.bg_cat_08,
@@ -567,12 +568,54 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
         bgRes = res;
         Drawable scrim = getDrawable(R.drawable.bg_scrim);
         new Thread(() -> {
-            Bitmap b = ImageLoader.bake(BitmapFactory.decodeResource(getResources(), res), scrim);
+            Bitmap b = ImageLoader.bake(wallpaper(BitmapFactory.decodeResource(getResources(), res)), scrim);
             handler.post(() -> {
                 photo = b;
                 if (currentBackground() == photo) showBackground(photo, !first);
             });
         }).start();
+    }
+
+    /**
+     * A portrait still on a 1080p screen: sharp at full height on the right, the rest filled by the same picture
+     * blurred and darkened (downscaled step by step, then stretched back), the seam faded over 200 px.
+     */
+    static Bitmap wallpaper(Bitmap src) {
+        final int w = 1920, h = 1080;
+        android.graphics.Paint filter = new android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG);
+        // Cover crop of the picture, then halve until tiny: each step averages, so the result is a real blur.
+        float cover = Math.max((float) w / src.getWidth(), (float) h / src.getHeight());
+        int cw = Math.round(w / cover), ch = Math.round(h / cover);
+        int cx = (src.getWidth() - cw) / 2, cy = (src.getHeight() - ch) / 2;
+        Bitmap small = Bitmap.createBitmap(w / 4, h / 4, Bitmap.Config.ARGB_8888);
+        new Canvas(small).drawBitmap(src, new Rect(cx, cy, cx + cw, cy + ch), new Rect(0, 0, w / 4, h / 4), filter);
+        while (small.getWidth() > 60) {
+            Bitmap half = Bitmap.createScaledBitmap(small, small.getWidth() / 2, small.getHeight() / 2, true);
+            small.recycle();
+            small = half;
+        }
+        Bitmap soft = Bitmap.createScaledBitmap(small, 240, 135, true);   // two upscales: no visible blocks
+        small.recycle();
+
+        Bitmap out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(out);
+        android.graphics.Paint dim = new android.graphics.Paint(filter);
+        dim.setColorFilter(new android.graphics.LightingColorFilter(0xFFA0A0A0, 0));   // 63 % brightness
+        c.drawBitmap(soft, null, new Rect(0, 0, w, h), dim);
+        soft.recycle();
+
+        int fw = Math.min(w, Math.round(src.getWidth() * (float) h / src.getHeight()));
+        int left = w - fw, fade = 200;
+        int layer = c.saveLayer(left, 0, w, h, null);
+        c.drawBitmap(src, null, new Rect(left, 0, w, h), filter);
+        android.graphics.Paint mask = new android.graphics.Paint();
+        mask.setShader(new android.graphics.LinearGradient(left, 0, left + fade, 0, 0x00000000, 0xFF000000,
+                android.graphics.Shader.TileMode.CLAMP));
+        mask.setXfermode(new android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_IN));
+        c.drawRect(left, 0, left + fade, h, mask);
+        c.restoreToCount(layer);
+        src.recycle();
+        return out;
     }
 
     // ---- background ----------------------------------------------------------------------------------
