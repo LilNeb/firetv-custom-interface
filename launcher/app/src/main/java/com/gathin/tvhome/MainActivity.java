@@ -72,14 +72,6 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
     private FrameLayout root;
     private GlassView glass;
     private PopupWindow openPopup;   // the menu on screen, so Home can close it
-    private TextView heroName;
-    private View dockDot;
-    // macOS dock magnification: focused icon and its neighbours grow from their bottom edge and lift.
-    private static final float DOCK_MAGNIFY = 1.30f;
-    private static final float DOCK_NEIGHBOUR = 1.10f;
-    private static final float DOCK_LIFT_DP = 10f;
-    private static final float DOCK_NEIGHBOUR_LIFT_DP = 4f;
-    private boolean heroShown;
     // True from launching an app until we are back: Home then keeps your place (tvOS), otherwise it resets.
     private boolean leftForApp;
     // Set while onResume rebuilds the grid: the stray focus Android hands to the first tab must not switch pages.
@@ -153,8 +145,6 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
         glass = findViewById(R.id.glass);
         // tvOS: the focused tile lifts on its own; no outline drawn around it.
         glass.setVisibility(View.GONE);
-        heroName = findViewById(R.id.heroName);
-        dockDot = findViewById(R.id.dockDot);
         greeting = findViewById(R.id.greeting);
         bgBack = findViewById(R.id.bgBack);
         bgFront = findViewById(R.id.bgFront);
@@ -184,15 +174,6 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
         grid.addItemDecoration(new DockDecoration(adapter, COLUMNS, density));
         grid.setAdapter(adapter);
 
-        // tvOS layout: push the dock row to the bottom of the screen; the grid hides below until you press Down.
-        grid.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
-            int h = b - t;
-            int dockRow = (int) ((101 + 6 + 12) * density);   // item height plus DockDecoration offsets
-            int want = Math.max(0, h - dockRow + (int) (8 * density));
-            if (grid.getPaddingTop() != want) {
-                grid.setPadding(grid.getPaddingLeft(), want, grid.getPaddingRight(), grid.getPaddingBottom());
-            }
-        });
 
         // Keep the glass glued to its tile while the grid scrolls.
         grid.addOnScrollListener(new RecyclerView.OnScrollListener() {
@@ -252,7 +233,6 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
             boolean onTile = newF != null && newF.getId() == R.id.card;
             if (!onTile) {
                 hideGlass();
-                hideHero();
             }
         });
     }
@@ -263,9 +243,6 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
         leftForApp = false;
         glassShown = false;
         glass.setAlpha(0f);
-        heroShown = false;
-        heroName.setAlpha(0f);
-        dockDot.setAlpha(0f);
         restoring = true;
         adapter.reload();
         updateGreeting();
@@ -353,11 +330,6 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
     @Override
     public void onTileFocused(int position, View card) {
         lastFocused = position;
-        if (adapter.isDocked(position)) {
-            onDockFocused(position, card);
-            return;
-        }
-        magnifyDock(-1);
         // Tile rect in root coordinates, using layout positions (ignores the scale animation).
         Rect r = new Rect(0, 0, card.getWidth(), card.getHeight());
         root.offsetDescendantRectToMyCoords(card, r);
@@ -388,71 +360,9 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
             springY.animateToFinalPosition(y);
         }
         View item = (View) card.getParent();
-        hideHero();
         // Scroll just enough so the whole glass (not only the tile) is visible.
         Rect want = new Rect(0, -(int) pad * 2, item.getWidth(), item.getHeight() + (int) pad);
         grid.requestChildRectangleOnScreen(item, want, false);
-    }
-
-    // ---- top shelf -------------------------------------------------------------------------------
-
-    private void onDockFocused(int position, View card) {
-        hideGlass();
-        View item = (View) card.getParent();
-        int decoratedTop = item.getTop() - (int) (6 * density);
-        int dy = decoratedTop - grid.getPaddingTop();
-        if (Math.abs(dy) > 1) grid.smoothScrollBy(0, dy);
-        magnifyDock(position);
-        Rect r = new Rect(0, 0, card.getWidth(), card.getHeight());
-        root.offsetDescendantRectToMyCoords(card, r);
-        r.offset(0, -dy);
-        showHero(position, r);
-    }
-
-    /** Scale dock icons by distance from the focused one; focused < 0 resets them all. */
-    private void magnifyDock(int focused) {
-        RecyclerView.LayoutManager lm = grid.getLayoutManager();
-        if (lm == null) return;
-        for (int i = 0; i < adapter.dockCount(); i++) {
-            View item = lm.findViewByPosition(i);
-            View card = item != null ? item.findViewById(R.id.card) : null;
-            if (card == null) continue;
-            int d = focused < 0 ? Integer.MAX_VALUE : Math.abs(i - focused);
-            float s = d == 0 ? DOCK_MAGNIFY : d == 1 ? DOCK_NEIGHBOUR : 1f;
-            float lift = d == 0 ? DOCK_LIFT_DP : d == 1 ? DOCK_NEIGHBOUR_LIFT_DP : 0f;
-            card.setPivotX(card.getWidth() / 2f);
-            card.setPivotY(card.getHeight());
-            Motion.scale(card, s, Motion.SNAPPY);
-            Motion.to(card, DynamicAnimation.TRANSLATION_Y, -lift * density, Motion.SNAPPY);
-            // The shadow grows from the same point (the icon's bottom centre) so it stays under the icon.
-            View shadow = item.findViewById(R.id.shadow);
-            shadow.setPivotX(shadow.getWidth() / 2f);
-            shadow.setPivotY(card.getBottom() - shadow.getTop());
-            Motion.scale(shadow, s, Motion.SNAPPY);
-            Motion.to(shadow, DynamicAnimation.TRANSLATION_Y, -lift * density, Motion.SNAPPY);
-        }
-    }
-
-    // Name tooltip above the magnified icon, dot below it, and a soft glow in the app's colour.
-    private void showHero(int position, Rect card) {
-        heroName.setText(adapter.labelAt(position));
-        heroName.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED);
-        float iconTop = card.bottom - card.height() * DOCK_MAGNIFY - DOCK_LIFT_DP * density;
-        heroName.setX(card.exactCenterX() - heroName.getMeasuredWidth() / 2f);
-        heroName.setY(iconTop - 8 * density - heroName.getMeasuredHeight());
-        dockDot.setX(card.exactCenterX() - dockDot.getWidth() / 2f);
-        dockDot.setY(card.bottom + 3 * density);
-        heroName.animate().alpha(1f).setDuration(160).setInterpolator(Motion.EASE_OUT).start();
-        dockDot.animate().alpha(1f).setDuration(160).setInterpolator(Motion.EASE_OUT).start();
-        heroShown = true;
-    }
-
-    private void hideHero() {
-        if (!heroShown) return;
-        heroShown = false;
-        heroName.animate().alpha(0f).setDuration(120).setInterpolator(Motion.EASE_OUT).start();
-        dockDot.animate().alpha(0f).setDuration(120).setInterpolator(Motion.EASE_OUT).start();
-        magnifyDock(-1);
     }
 
     private void hideGlass() {
@@ -546,17 +456,13 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
         addInputRow(rows, popup, R.drawable.ic_info, getString(R.string.app_info), -1, () ->
                 open(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + pkg))));
 
-        // Float the menu just above the tile, centred on it; the name tooltip steps aside while it's open.
+        // Float the menu just above the tile, centred on it.
         Rect r = new Rect(0, 0, card.getWidth(), card.getHeight());
         root.offsetDescendantRectToMyCoords(card, r);
         panel.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY), View.MeasureSpec.UNSPECIFIED);
-        float top = docked ? r.bottom - r.height() * DOCK_MAGNIFY - DOCK_LIFT_DP * density : r.top;
+        float top = r.top - r.height() * (AppAdapter.FOCUS_SCALE - 1) / 2;   // the focused tile is scaled up
         int x = (int) (r.exactCenterX() - width / 2f);
         int y = (int) (top - 12 * density - panel.getMeasuredHeight());
-        heroName.animate().alpha(0f).setDuration(120).setInterpolator(Motion.EASE_OUT).start();
-        popup.setOnDismissListener(() -> {
-            if (adapter.isDocked(lastFocused) && heroShown) heroName.animate().alpha(1f).setDuration(160).setInterpolator(Motion.EASE_OUT).start();
-        });
         panel.setAlpha(0f);
         panel.setTranslationY(8 * density);
         popup.showAtLocation(root, Gravity.NO_GRAVITY, x, y);
@@ -588,7 +494,6 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
 
     /** After the dock changes, focus the app's new tile once the grid has re-laid out. */
     private void focusAfterLayout(String pkg) {
-        hideHero();
         ((GridLayoutManager) grid.getLayoutManager()).getSpanSizeLookup().invalidateSpanIndexCache();
         grid.invalidateItemDecorations();
         grid.getViewTreeObserver().addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
@@ -802,7 +707,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
     private void enterPage(int p) {
         setPage(p, true);
         if (p == PAGE_WATCH) watch.requestFocus();
-        else focusTile(Math.max(0, Math.min(lastFocused, adapter.getItemCount() - 1)));
+        else focusTile(0);   // from the tab: the first app, like the Watch page's first card
     }
 
     private void setPage(int p, boolean animate) {
@@ -821,7 +726,6 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
         for (int id : new int[]{R.id.btnInputs, R.id.btnWifi, R.id.btnSettings}) findViewById(id).setNextFocusDownId(down);
         if (p == PAGE_WATCH) {
             hideGlass();
-            hideHero();
         }
         showBackground(currentBackground(), animate);
         placeIndicator(animate);

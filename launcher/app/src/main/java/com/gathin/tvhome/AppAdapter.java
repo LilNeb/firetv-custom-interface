@@ -114,6 +114,34 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
         return new android.graphics.drawable.BitmapDrawable(ctx.getResources(), b);
     }
 
+    /**
+     * The app's icon filling the whole tile, rounded like it (tvOS): adaptive icons without their mask, square
+     * icons as they are. Null for an icon with see-through corners: it keeps its graphite tile.
+     */
+    private Drawable fullBleed(Drawable d) {
+        int size = Math.round(TILE_DP * ctx.getResources().getDisplayMetrics().density * 1.30f);
+        Bitmap b = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(b);
+        if (d instanceof android.graphics.drawable.AdaptiveIconDrawable) {
+            // Layers are 1.5x the icon; the system mask shows the middle. Draw them unmasked over the tile.
+            android.graphics.drawable.AdaptiveIconDrawable a = (android.graphics.drawable.AdaptiveIconDrawable) d;
+            int in = size / 4;
+            for (Drawable layer : new Drawable[]{a.getBackground(), a.getForeground()}) {
+                if (layer == null) continue;
+                layer.setBounds(-in, -in, size + in, size + in);
+                layer.draw(c);
+            }
+        } else {
+            d.setBounds(0, 0, size, size);
+            d.draw(c);
+            int e = size - 2;
+            if (Color.alpha(b.getPixel(1, 1)) < 250 || Color.alpha(b.getPixel(e, 1)) < 250
+                    || Color.alpha(b.getPixel(1, e)) < 250 || Color.alpha(b.getPixel(e, e)) < 250) return null;
+        }
+        return new android.graphics.drawable.BitmapDrawable(ctx.getResources(),
+                ImageLoader.shapeCard(b, size, size, size * CORNER_RATIO, false));
+    }
+
     /** True when the tile is the first (or last, if right) of its row: the dock, or a grid row of maxDock columns. */
     boolean atRowEnd(int pos, boolean right) {
         int dock = dockCount;
@@ -142,8 +170,8 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
             String squareName = DOCK_ICONS.get(pkg);
             int square = squareName == null ? 0
                     : ctx.getResources().getIdentifier(squareName, "drawable", ctx.getPackageName());
-            fresh.add(new Entry(label, new ComponentName(pkg, ri.activityInfo.name),
-                    square != 0 ? raster(ctx.getDrawable(square), TILE_DP, true) : null, icon));
+            Drawable art = square != 0 ? raster(ctx.getDrawable(square), TILE_DP, true) : fullBleed(ri.loadIcon(pm));
+            fresh.add(new Entry(label, new ComponentName(pkg, ri.activityInfo.name), art, icon));
         }
         Collections.sort(fresh, (a, b) -> {
             int fa = pinned.indexOf(a.pkg), fb = pinned.indexOf(b.pkg);
@@ -222,7 +250,7 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
         Entry e = items.get(position);
         h.name.setText(e.label);
         boolean docked = isDocked(position);
-        h.name.setVisibility(docked ? View.INVISIBLE : View.VISIBLE);   // the dock uses the tooltip instead
+        h.name.setVisibility(View.VISIBLE);
         h.name.setAlpha(0f);
         h.card.setScaleX(1f);
         h.card.setScaleY(1f);
@@ -312,12 +340,8 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
             });
 
             card.setOnFocusChangeListener((view, focused) -> {
-                // Dock icons are magnified as a group by MainActivity; grid tiles scale themselves.
-                boolean inDock = owner.isDocked(getBindingAdapterPosition());
-                float s = focused ? FOCUS_SCALE : 1.0f;
-                if (!inDock) {
-                    Motion.scale(view, s, Motion.SNAPPY);
-                }
+                // Dock and grid tiles focus the same way, like the Watch page's cards.
+                Motion.scale(view, focused ? FOCUS_SCALE : 1.0f, Motion.SNAPPY);
                 // Same focus ring as the Watch page's cards, shown at once.
                 android.graphics.drawable.GradientDrawable ring = null;
                 if (focused) {

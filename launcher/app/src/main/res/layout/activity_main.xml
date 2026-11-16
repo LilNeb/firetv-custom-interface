@@ -21,22 +21,6 @@
         android:alpha="0"
         android:importantForAccessibility="no" />
 
-    <!-- Name tooltip above the focused dock icon, positioned in code. -->
-    <TextView
-        android:id="@+id/heroName"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:alpha="0"
-        android:background="@drawable/dock_label_bg"
-        android:paddingStart="14dp"
-        android:paddingEnd="14dp"
-        android:paddingTop="5dp"
-        android:paddingBottom="6dp"
-        android:textColor="#F2FFFFFF"
-        android:textSize="12sp"
-        android:fontFamily="@font/open_sans"
-        android:fontVariationSettings="'wght' 500"
-        android:singleLine="true" />
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -227,7 +211,7 @@
                 android:paddingStart="264dp"
                 android:paddingEnd="264dp"
                 android:paddingTop="10dp"
-                android:paddingBottom="40dp"
+                android:paddingBottom="8dp"
                 android:clipToPadding="false"
                 android:clipChildren="false"
                 android:overScrollMode="never"
@@ -237,13 +221,6 @@
         </FrameLayout>
     </LinearLayout>
 
-    <!-- Dot under the focused dock icon, positioned in code. -->
-    <View
-        android:id="@+id/dockDot"
-        android:layout_width="4dp"
-        android:layout_height="4dp"
-        android:alpha="0"
-        android:background="@drawable/dock_dot" />
 
     <!-- The single floating glass highlight that springs between tiles. -->
     <com.gathin.tvhome.GlassView
