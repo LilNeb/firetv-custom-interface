@@ -537,11 +537,15 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
 
     // ---- top bar ---------------------------------------------------------------------------------
 
-    // Morning 5-12, afternoon 12-17, evening 17-22, night 22-5. Indexes GREETINGS and BACKGROUNDS.
+    // Morning 5-12, afternoon 12-17, evening 17-22, night 22-5. Indexes GREETINGS.
     private static final int[] GREETINGS = {
             R.string.good_morning, R.string.good_afternoon, R.string.good_evening, R.string.good_night};
+    // Stills from Nicolas's reels, composed for 16:9: the portrait frame on the right, a blurred copy behind.
     private static final int[] BACKGROUNDS = {
-            R.drawable.bg_morning, R.drawable.bg_afternoon, R.drawable.bg_evening, R.drawable.bg_night};
+            R.drawable.bg_cat_01, R.drawable.bg_cat_02, R.drawable.bg_cat_03, R.drawable.bg_cat_04,
+            R.drawable.bg_cat_05, R.drawable.bg_cat_06, R.drawable.bg_cat_07, R.drawable.bg_cat_08,
+            R.drawable.bg_cat_09, R.drawable.bg_cat_10, R.drawable.bg_cat_11};
+    private static final long BACKGROUND_MS = 10 * 60_000L;   // a new picture every 10 minutes
 
     private static int dayPart() {
         int hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
@@ -559,15 +563,13 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
     }
 
     private void updateBackground() {
-        int res = BACKGROUNDS[dayPart()];
+        int res = BACKGROUNDS[(int) (System.currentTimeMillis() / BACKGROUND_MS % BACKGROUNDS.length)];
         if (res == bgRes) return;
         boolean first = bgRes == 0;
         bgRes = res;
         Drawable scrim = getDrawable(R.drawable.bg_scrim);
         new Thread(() -> {
-            BitmapFactory.Options o = new BitmapFactory.Options();
-            o.inSampleSize = 2;  // 960 x 540 is plenty for a photo under a scrim, and a quarter of the texture
-            Bitmap b = ImageLoader.bake(BitmapFactory.decodeResource(getResources(), res, o), scrim);
+            Bitmap b = ImageLoader.bake(BitmapFactory.decodeResource(getResources(), res), scrim);
             handler.post(() -> {
                 photo = b;
                 if (currentBackground() == photo) showBackground(photo, !first);
