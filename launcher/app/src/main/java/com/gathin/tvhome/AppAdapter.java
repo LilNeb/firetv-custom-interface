@@ -115,8 +115,8 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
     }
 
     /**
-     * The app's icon filling the whole tile, rounded like it (tvOS): adaptive icons without their mask, square
-     * icons as they are. Null for an icon with see-through corners: it keeps its graphite tile.
+     * The app's icon filling the whole tile with one rounded shape (tvOS): adaptive icons without their mask,
+     * legacy icons cropped to their opaque part, and a logo plate on a plain background (YouTube) zoomed to fill.
      */
     private Drawable fullBleed(Drawable d) {
         int size = Math.round(TILE_DP * ctx.getResources().getDisplayMetrics().density * 1.30f);
@@ -134,12 +134,72 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
         } else {
             d.setBounds(0, 0, size, size);
             d.draw(c);
-            int e = size - 2;
-            if (Color.alpha(b.getPixel(1, 1)) < 250 || Color.alpha(b.getPixel(e, 1)) < 250
-                    || Color.alpha(b.getPixel(1, e)) < 250 || Color.alpha(b.getPixel(e, e)) < 250) return null;
+            Rect box = bounds(b, 0, true);
+            if (box == null) return null;
+            if (box.width() > size * 0.9f && box.height() > size * 0.9f || solid(b, box, Color.TRANSPARENT)) {
+                // A plate with see-through corners: fill them with its own colour and stretch it to the tile.
+                b = crop(b, box, b.getPixel(box.centerX(), box.top + box.height() / 8), size);
+            } else {
+                // A bare glyph (CANAL+'s cross): centred on black, the colour such logos are drawn for.
+                Bitmap out = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+                Canvas oc = new Canvas(out);
+                oc.drawColor(Color.BLACK);
+                int m = size * 18 / 100;
+                d.setBounds(m, m, size - m, size - m);
+                d.draw(oc);
+                b = out;
+            }
+        }
+        Rect plate = bounds(b, b.getPixel(1, 1), false);
+        if (plate != null && solid(b, plate, b.getPixel(1, 1))) {
+            int side = Math.min(plate.width(), plate.height()) * 9 / 10;   // inside the plate's own rounded corners
+            int cx = plate.centerX(), cy = plate.centerY();
+            b = crop(b, new Rect(cx - side / 2, cy - side / 2, cx + side / 2, cy + side / 2), Color.TRANSPARENT, size);
         }
         return new android.graphics.drawable.BitmapDrawable(ctx.getResources(),
                 ImageLoader.shapeCard(b, size, size, size * CORNER_RATIO, false));
+    }
+
+    private static boolean differs(int a, int b) {
+        return Math.abs(Color.red(a) - Color.red(b)) + Math.abs(Color.green(a) - Color.green(b))
+                + Math.abs(Color.blue(a) - Color.blue(b)) + Math.abs(Color.alpha(a) - Color.alpha(b)) > 60;
+    }
+
+    /** Bounding box of the opaque pixels (opaque) or of those unlike bg; null when there is nothing to crop. */
+    private static Rect bounds(Bitmap b, int bg, boolean opaque) {
+        int n = b.getWidth(), l = n, t = n, r = -1, bo = -1;
+        int[] px = new int[n * n];
+        b.getPixels(px, 0, n, 0, 0, n, n);
+        for (int y = 0; y < n; y++) for (int x = 0; x < n; x++) {
+            int p = px[y * n + x];
+            if (opaque ? Color.alpha(p) > 200 : differs(p, bg)) {
+                l = Math.min(l, x); r = Math.max(r, x); t = Math.min(t, y); bo = Math.max(bo, y);
+            }
+        }
+        return r < 0 ? null : new Rect(l, t, r + 1, bo + 1);
+    }
+
+    /** True when box is a filled plate (a logo tile), not text: big, and its four edge midpoints share one colour. */
+    private static boolean solid(Bitmap b, Rect box, int bg) {
+        int n = b.getWidth();
+        if (box.width() < n / 2 || box.height() < n / 2 || box.width() > n * 0.85f && box.height() > n * 0.85f) return false;   // already fills the tile
+        int qx = box.width() / 5, qy = box.height() / 5;   // a glyph like a cross leaves its quarter points empty
+        for (int[] q : new int[][]{{box.left + qx, box.top + qy}, {box.right - 1 - qx, box.top + qy},
+                {box.left + qx, box.bottom - 1 - qy}, {box.right - 1 - qx, box.bottom - 1 - qy}})
+            if (!differs(b.getPixel(q[0], q[1]), bg)) return false;
+        int in = Math.max(3, Math.min(box.width(), box.height()) / 12);
+        int[] mid = {b.getPixel(box.left + in, box.centerY()), b.getPixel(box.right - 1 - in, box.centerY()),
+                b.getPixel(box.centerX(), box.top + in), b.getPixel(box.centerX(), box.bottom - 1 - in)};
+        for (int p : mid) if (!differs(p, bg) || differs(p, mid[0])) return false;
+        return true;
+    }
+
+    private static Bitmap crop(Bitmap src, Rect box, int fill, int size) {
+        Bitmap out = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(out);
+        c.drawColor(fill);
+        c.drawBitmap(src, box, new Rect(0, 0, size, size), new android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG));
+        return out;
     }
 
     /** True when the tile is the first (or last, if right) of its row: the dock, or a grid row of maxDock columns. */
@@ -255,7 +315,7 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
         h.card.setScaleX(1f);
         h.card.setScaleY(1f);
         h.card.setTranslationY(0f);
-        h.shadow.setVisibility(docked ? View.VISIBLE : View.GONE);   // grid tiles: no shadow, it costs GPU fill on every scroll frame
+        h.shadow.setVisibility(View.GONE);   // same look on every row
         h.shadow.setScaleX(1f);
         h.shadow.setScaleY(1f);
         h.shadow.setTranslationY(0f);
