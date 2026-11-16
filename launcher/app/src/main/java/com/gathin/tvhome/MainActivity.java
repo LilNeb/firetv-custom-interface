@@ -540,7 +540,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener, W
     // Morning 5-12, afternoon 12-17, evening 17-22, night 22-5. Indexes GREETINGS.
     private static final int[] GREETINGS = {
             R.string.good_morning, R.string.good_afternoon, R.string.good_evening, R.string.good_night};
-    // Stills from Nicolas's reels, composed for 16:9: the portrait frame on the right, a blurred copy behind.
+    // Stills from Nicolas's reels for 16:9: the sharp portrait frame on the right, the rest in its own dark tone.
     private static final int[] BACKGROUNDS = {
             R.drawable.bg_cat_01, R.drawable.bg_cat_02, R.drawable.bg_cat_03, R.drawable.bg_cat_04,
             R.drawable.bg_cat_05, R.drawable.bg_cat_06, R.drawable.bg_cat_07, R.drawable.bg_cat_08,
